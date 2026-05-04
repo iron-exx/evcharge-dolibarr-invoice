@@ -46,8 +46,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
-- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
+- [ ] 02-01-PLAN.md — HA Addon Session Tracking (session_manager.py, SQLite, RFID Whitelist, Debouncing)
+- [ ] 02-02-PLAN.md — Dolibarr User Management (wallboxbilling.class.php, llx_wallbox_sessions SQL, RFID-Hash, Pricing)
 **UI hint**: yes
 
 ### Phase 3: API Integration (HA Addon → Dolibarr)
