@@ -24,7 +24,11 @@
   2. Dolibarr admin can activate Wallbox module from module list
   3. Module activation creates llx_wallbox_sessions table and sets up permissions
   4. Sensor data updates in real-time in HA dashboard when wallbox state changes
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
 
 ### Phase 2: Session Tracking + User Management
 **Goal**: HA Addon tracks charging sessions with RFID authentication; Dolibarr manages users with RFID-hash and pricing
@@ -39,7 +43,11 @@
   6. RFID hashes stored (not plaintext) in both HA SQLite and Dolibarr; SHA-256 hashing used
   7. Active sessions persist in SQLite and survive Addon restarts
   8. Dolibarr has llx_wallbox_sessions table with all required fields (id, user_id, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, created_at)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
 **UI hint**: yes
 
 ### Phase 3: API Integration (HA Addon → Dolibarr)
@@ -52,7 +60,11 @@
   3. Failed transmissions retried with exponential backoff
   4. RFID transmitted as SHA-256 hash only (no plaintext)
   5. Dolibarr API endpoint validates token and rejects unauthorized requests
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
 
 ### Phase 4: Billing + Invoicing + Export
 **Goal**: Monthly billing generates invoices and exports for German accounting
@@ -66,7 +78,11 @@
   5. Optional: Dolibarr invoice/credit note created for each user
   6. Admin can export sessions to CSV for external analysis
   7. Admin can export sessions to DATEV format for German accounting
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
 **UI hint**: yes
 
 ### Phase 5: Hardening + Multi-Wallbox
@@ -78,7 +94,11 @@
   2. Incomplete sessions from crash detected and correctly continued (if still charging) or terminated (if not)
   3. SQLite uses WAL mode for better concurrency
   4. System supports multiple wallboxes (wallbox_id field populated in all session records)
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
 
 ## Progress
 
