@@ -1,0 +1,32 @@
+name: "Wallbox-Dolibarr Addon"
+description: "RFID-basierte Abrechnung von Wallbox-Ladevorgängen"
+version: "1.0.0"
+slug: "wallbox-dolibarr"
+init: false
+
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+ports:
+  8099/tcp: null
+
+options:
+  log_level: "INFO"
+  wallbox_id: "alfen_eve"
+  rfid_whitelist:
+    - "EFCD083E"
+    
+schema:
+  log_level: "list(DEBUG|INFO|WARNING|ERROR)"
+  wallbox_id: "str"
+  rfid_whitelist: "list(str)"
+
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
