@@ -1,0 +1,19 @@
+# Wallbox Billing Sprachdatei (Deutsch)
+# Generiert: 2026-05-04
+
+WallboxBillingSetup=Wallbox-Abrechnung Konfiguration
+WallboxConfiguration=Wallbox Konfiguration
+DefaultPricePerKwh=Standardpreis pro kWh (€)
+Permissions=Berechtigungen
+Permission=Berechtigung
+Description=Beschreibung
+WallboxSessions=Wallbox Ladevorgänge
+LinkUserToRFID=Benutzer mit RFID verknüpfen
+MonthlyBilling=Monatliche Abrechnung
+ViewOwnSessions=Eigene Ladevorgänge ansehen
+ManageAllSessions=Alle Ladevorgänge verwalten
+CreateBilling=Abrechnungen erstellen
+SessionsWillBeDisplayedHere=Hier werden die Ladevorgänge angezeigt.
+UserRFIDLinkWillBeHere=Hier können Benutzer mit RFID-Karten verknüpft werden.
+BillingPreviewWillBeHere=Hier wird die Abrechnungsvorschau angezeigt.
+Save=Speichern
