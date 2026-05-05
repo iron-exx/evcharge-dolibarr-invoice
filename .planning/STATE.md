@@ -1,22 +1,23 @@
 # Project State: Wallbox-Dolibarr Integration
 
 ## Project Reference
-**Core Value:** Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuellen Aufwand
-**Current Focus:** Phase 1 - Foundation (HA Integration + Dolibarr Skeleton)
+**Core Value:** Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgangen ohne manuellen Aufwand
+**Current Focus:** Phase 3 - API Integration (HA Addon → Dolibarr)
 **Created:** 2026-05-04
-**Last Updated:** 2026-05-04
+**Last Updated:** 2026-05-05
 
 ## Current Position
-**Phase:** 1 (Foundation)
-**Plan:** 1 of 2
-**Status:** Plans created, ready for execution
-**Progress:** [=                   ] 10%
+**Phase:** 3 (API Integration)
+**Plan:** 0/2 complete
+**Status:** Context gathered ✓
+**Progress:** [████████████        ] 50%
 
 ## Performance Metrics
-- Phases completed: 0/5
-- Plans completed: 0/2
-- Requirements covered: 3/40 (HA-01, DB-03, SEC-04)
-- Sessions worked: 2
+- Phases completed: 2/5
+- Phases with context: 3/5
+- Plans completed: 4/4
+- Requirements covered: 17/40 (HA-01 to HA-07, PER-01, PER-05, USR-01 to USR-05, DB-01, DB-02, DB-03, SEC-01, SEC-02, SEC-04, SEC-05)
+- Sessions worked: 4
 
 ## Accumulated Context
 ### Key Decisions
@@ -27,11 +28,26 @@
 - HA-Addon: Dockerfile + build.json, Async loop mit aiohttp, HA Core Integration
 - Dolibarr-Modul: wallboxbilling, noumainventoryapp Vorlage, 4 Frontend-Seiten
 - SQLite Setup in Phase1, SHA-256 Hash in utils/hash.py
-- Testing: pytest (Python) + PHPUnit (PHP), Mock HA-API
+- Testing: pytest (Python) + PHPUnit (PHP), Mock HA-API)
+- Session-Tracking: SQLite mit active/completed Sessions, RFID-Debouncing 7s
+- User Management: wallboxbilling DAO, RFID-Hash (SHA-256), Preis pro kWh
+- **Phase 3 API Endpoint:** Custom Endpoint in modWallboxbilling (D-01)
+- **Phase 3 Retry:** Konservativ (1s init, 60s max, 5 retries, 2x factor) (D-02)
+- **Phase 3 Status Tracking:** transmitted_at Feld in llx_wallbox_sessions (D-03)
+- **Phase 3 JSON Format:** rfid_hash, wallbox_id, start_time, end_time, kWh (ISO 8601) (D-04)
+
+### Completed Plans
+- [x] **01-01**: HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
+  - Commits: 028eba0, 355d329, 01a4474
+- [x] **01-02**: Dolibarr Module Skeleton (modWallboxbilling, SQL, Frontend)
+  - Commits: c20ae30, ddcb25, 8cab79b
+- [x] **02-01**: HA Session Tracking (session_manager.py, SQLite, RFID Whitelist, Debouncing)
+  - Commits: 52e1e66, e028fe4, 262dbf4
+- [x] **02-02**: Dolibarr User Management (wallboxbilling DAO, llx_wallbox_sessions, RFID-Hash, Pricing)
+  - Commits: 1b74a96, 3de102a, 875284b, bf4daea
 
 ### TODOs
-- [ ] Execute Phase 1 Plan 01 (HA Addon Foundation)
-- [ ] Execute Phase 1 Plan 02 (Dolibarr Module Skeleton)
+- [ ] Phase 3 planen (`/gsd-plan-phase 3`)
 - [ ] Verify Alfen Modbus register addresses
 - [ ] Set up development environment (HA, Dolibarr)
 
@@ -39,10 +55,10 @@
 (None currently)
 
 ## Session Continuity
-Last session: 2026-05-04 — Phase 1 plans created
-Stopped at: Phase 1 plans created
-Resume file: .planning/phases/01-foundation/01-01-PLAN.md
-Next action: `/gsd-execute-phase 1` to execute Phase 1 plans
+Last session: 2026-05-05 — Phase 3 context gathered
+Stopped at: Phase 3 context complete ✓
+Resume file: .planning/phases/03-api-integration/03-CONTEXT.md
+Next action: `/gsd-plan-phase 3` to create detailed plan for Phase 3 (API Integration)
 
 ---
-*State updated after plan-phase 1*
+*State updated after Phase 3 context discussion*
