@@ -19,11 +19,23 @@ options:
   wallbox_id: "alfen_eve"
   rfid_whitelist:
     - "EFCD083E"
-    
+
+  # API-Konfiguration für Dolibarr-Übertragung (Phase 3)
+  api:
+    dolibarr_url: "https://dolibarr.example.com"
+    api_token: "your_dolapikey_here"
+    transmit_interval: 300  # Sekunden (5 Minuten)
+    timeout: 30  # Sekunden für API-Calls
+
 schema:
   log_level: "list(DEBUG|INFO|WARNING|ERROR)"
   wallbox_id: "str"
   rfid_whitelist: "list(str)"
+  api:
+    dolibarr_url: "str"
+    api_token: "str"
+    transmit_interval: "int"
+    timeout: "int"
 
 logging:
   driver: "json-file"

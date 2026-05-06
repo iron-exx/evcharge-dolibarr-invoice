@@ -52,6 +52,18 @@ def load_config():
         with open(config_path, 'r') as f:
             config = json.load(f)
             _LOGGER.info("Konfiguration geladen von %s", config_path)
+
+            # API-Konfiguration validieren (Task 3)
+            api_config = config.get('api', {})
+            if api_config:
+                dolibarr_url = api_config.get('dolibarr_url', '')
+                if dolibarr_url and not (dolibarr_url.startswith('http://') or dolibarr_url.startswith('https://')):
+                    _LOGGER.warning("API-Konfiguration: dolibarr_url muss mit http:// oder https:// beginnen")
+
+                api_token = api_config.get('api_token', '')
+                if not api_token or api_token == 'your_dolapikey_here':
+                    _LOGGER.warning("API-Token nicht konfiguriert oder noch Default-Wert")
+
             return config
     except Exception as e:
         _LOGGER.error("Fehler beim Laden der Konfiguration: %s", e)
