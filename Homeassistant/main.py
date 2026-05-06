@@ -21,6 +21,9 @@ from utils.hash import hash_rfid
 # Session Manager importieren
 from session_manager import SessionManager, CHARGING, IDLE, STOPPED
 
+# API Client importieren (Phase 3)
+from api_client import WallboxApiClient
+
 # Logging Setup (D-17, D-20)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(
@@ -242,7 +245,7 @@ async def check_startup_session():
 
 
 async def main():
-    """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking"""
+    """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
     global session_manager, current_config, ha_ws
 
     _LOGGER.info("Wallbox-Dolibarr Addon startet...")
@@ -250,8 +253,31 @@ async def main():
     # Session Manager initialisieren (PER-01)
     session_manager = SessionManager(db_path="/data/sessions.db")
 
-    # Konfiguration laden (für Whitelist)
+    # Konfiguration laden (für Whitelist und API)
     current_config = load_config()
+
+    # API Client initialisieren (nur wenn konfiguriert, Task 4)
+    api_client = None
+    api_config = current_config.get("api", {})
+    if api_config.get("dolibarr_url"):
+        try:
+            api_client = WallboxApiClient(
+                base_url=api_config["dolibarr_url"],
+                api_token=api_config.get("api_token", ""),
+                timeout=api_config.get("timeout", 30)
+            )
+
+            # Verbindung testen
+            if api_client.check_connection():
+                _LOGGER.info("Dolibarr API Verbindung erfolgreich")
+            else:
+                _LOGGER.warning("Dolibarr API Verbindung fehlgeschlagen - wird später erneut versucht")
+                api_client = None
+        except Exception as e:
+            _LOGGER.error("Fehler beim Initialisieren des API-Clients: %s", e)
+            api_client = None
+    else:
+        _LOGGER.info("Keine API-Konfiguration - Addon läuft ohne API-Transmission")
 
     ha_ws = HomeAssistantWebsocket()
 
@@ -262,7 +288,40 @@ async def main():
         # Prüfen ob aktive Session nach Neustart existiert (PER-01)
         await check_startup_session()
 
-        # Sensor-Updates abonnieren (event-basiert, D-10)
+        # Periodic API Transmission als Hintergrund-Task (Task 4 - Fix: subscribe_entities blockiert)
+        async def periodic_transmission():
+            """Periodische API-Übertragung als Hintergrund-Task"""
+            import time
+            last_transmit = 0
+            transmit_interval = api_config.get("transmit_interval", 300)
+
+            while True:
+                if api_client:
+                    current_time = time.time()
+                    if (current_time - last_transmit) >= transmit_interval:
+                        result = session_manager.transmit_completed_sessions(api_client)
+
+                        if result["transmitted"] > 0:
+                            _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
+
+                        if result["failed"] > 0:
+                            _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen", result["failed"])
+                            # Bei Fehlern: Verbindung neu testen
+                            if not api_client.check_connection():
+                                _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
+                                # api_client auf None setzen deaktiviert weitere Versuche
+                                # TODO: Reconnect-Logik in Zukunft
+
+                        last_transmit = current_time
+
+                await asyncio.sleep(1)
+
+        # Hintergrund-Task starten
+        if api_client:
+            transmission_task = asyncio.create_task(periodic_transmission())
+            _LOGGER.info("API-Transmission Hintergrund-Task gestartet")
+
+        # Sensor-Updates abonnieren (event-basiert, D-10) - blockiert bis zur Unterbrechung
         await ha_ws.subscribe_entities(sensor_callback)
 
     except KeyboardInterrupt:
