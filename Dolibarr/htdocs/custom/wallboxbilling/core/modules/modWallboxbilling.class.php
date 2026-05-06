@@ -81,6 +81,25 @@ class modWallboxbilling extends DolibarrModules
         $this->rights[$r][4] = 'wallboxbilling.billing';
         $r++;
 
+        // Cron-Jobs registrieren (BIL-01)
+        $this->cronjobs = array(
+            0 => array(
+                'entity' => 0,
+                'label' => 'Wallbox Monthly Billing',
+                'jobtype' => 'method',
+                'class' => 'wallboxbilling/class/billing.class.php',
+                'objectname' => 'WallboxBilling',
+                'method' => 'runMonthlyBilling',
+                'parameters' => '',
+                'comment' => 'Monatliche Wallbox-Abrechnung ausführen',
+                'frequency' => 1,
+                'unitfrequency' => 3600 * 24 * 30,  // ~30 Tage (Monat)
+                'priority' => 50,
+                'status' => 1,  // Aktiviert
+                'test' => '$conf->wallboxbilling->enabled'
+            )
+        );
+
         // Modul-Initialisierung
         $this->init();
     }
@@ -121,6 +140,23 @@ class modWallboxbilling extends DolibarrModules
             `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY `uk_rfid_hash` (`rfid_hash`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
+
+        // Billing History Tabelle (BIL-01, BIL-02, BIL-03)
+        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
+            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
+            `fk_user` INTEGER NOT NULL,
+            `billing_month` INTEGER NOT NULL,
+            `billing_year` INTEGER NOT NULL,
+            `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
+            `price_per_kwh` DECIMAL(10,4) NOT NULL,
+            `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
+            `session_count` INTEGER NOT NULL DEFAULT 0,
+            `session_details` LONGTEXT,
+            `fk_user_creator` INTEGER NOT NULL,
+            `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `status` INTEGER NOT NULL DEFAULT 1,
+            UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
         // Indizes erstellen
         $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_rfid ON llx_wallbox_sessions(rfid_hash)";
@@ -176,6 +212,23 @@ class modWallboxbilling extends DolibarrModules
             UNIQUE KEY `uk_rfid_hash` (`rfid_hash`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
 
+        // Billing History Tabelle (BIL-01, BIL-02, BIL-03)
+        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
+            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
+            `fk_user` INTEGER NOT NULL,
+            `billing_month` INTEGER NOT NULL,
+            `billing_year` INTEGER NOT NULL,
+            `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
+            `price_per_kwh` DECIMAL(10,4) NOT NULL,
+            `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
+            `session_count` INTEGER NOT NULL DEFAULT 0,
+            `session_details` LONGTEXT,
+            `fk_user_creator` INTEGER NOT NULL,
+            `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `status` INTEGER NOT NULL DEFAULT 1,
+            UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
         // Indizes
         $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_rfid ON llx_wallbox_sessions(rfid_hash)";
         $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_user ON llx_wallbox_sessions(fk_user)";
@@ -195,6 +248,27 @@ class modWallboxbilling extends DolibarrModules
         $res = $db->query($check_col);
         if (!$res || $db->num_rows($res) == 0) {
             $db->query("ALTER TABLE llx_wallbox_sessions ADD COLUMN transmitted_at DATETIME NULL AFTER date_creation");
+        }
+
+        // Billing History Tabelle prüfen und hinzufügen (BIL-01)
+        $check_table = "SHOW TABLES LIKE 'llx_wallbox_billing_history'";
+        $resTable = $db->query($check_table);
+        if (!$resTable || $db->num_rows($resTable) == 0) {
+            $db->query("CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
+                `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
+                `fk_user` INTEGER NOT NULL,
+                `billing_month` INTEGER NOT NULL,
+                `billing_year` INTEGER NOT NULL,
+                `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                `price_per_kwh` DECIMAL(10,4) NOT NULL,
+                `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
+                `session_count` INTEGER NOT NULL DEFAULT 0,
+                `session_details` LONGTEXT,
+                `fk_user_creator` INTEGER NOT NULL,
+                `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `status` INTEGER NOT NULL DEFAULT 1,
+                UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
 
         // Berechtigungen einrichten (D-08, SEC-04)
