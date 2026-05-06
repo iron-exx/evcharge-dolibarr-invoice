@@ -63,8 +63,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
-- [ ] 01-02-PLAN.md — Dolibarr Module Skeleton (modWallboxbilling, SQL table, Permissions, Frontend pages)
+- [x] 03-01-PLAN.md — HA Addon API Client (api_client.py, session_manager, config, main loop)
+- [x] 03-02-PLAN.md — Dolibarr Custom API Endpoint (api_wallboxbilling.class.php, DB transmitted_at)
 
 ### Phase 4: Billing + Invoicing + Export
 **Goal**: Monthly billing generates invoices and exports for German accounting
@@ -104,10 +104,10 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/2 | Not started | - |
-| 2. Session Tracking + User Management | 0/3 | Not started | - |
-| 3. API Integration | 0/2 | Not started | - |
-| 4. Billing + Invoicing + Export | 0/3 | Not started | - |
+| 1. Foundation | 2/2 | Complete ✓ | 2026-05-04 |
+| 2. Session Tracking + User Management | 2/2 | Complete ✓ | 2026-05-05 |
+| 3. API Integration | 2/2 | Complete ✓ | 2026-05-06 |
+| 4. Billing + Invoicing + Export | 0/2 | Not started | - |
 | 5. Hardening + Multi-Wallbox | 0/2 | Not started | - |
 
 ---
