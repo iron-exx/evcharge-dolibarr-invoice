@@ -27,6 +27,28 @@ STOPPED = "Stopped"
 # Debounce-Zeit in Sekunden (HA-07)
 DEBOUNCE_SECONDS = 7
 
+
+def format_iso8601(dt: Any) -> str:
+    """
+    Konvertiert datetime zu ISO 8601 String mit Zeitzone
+
+    Args:
+        dt: datetime-Objekt oder String
+
+    Returns:
+        ISO 8601 formatierter String
+
+    Note:
+        Wenn dt bereits ein String ist, wird er unverändert zurückgegeben
+    """
+    if isinstance(dt, str):
+        return dt
+
+    if isinstance(dt, datetime):
+        return dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+    return str(dt)
+
 class SessionManager:
     """Verwaltet Lade-Sessions in SQLite"""
 
@@ -53,9 +75,20 @@ class SessionManager:
                 end_energy_kwh REAL,
                 total_kwh REAL,
                 status TEXT NOT NULL DEFAULT 'active',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                transmitted_at TEXT
             )
         ''')
+
+        # Spalte transmitted_at hinzufügen falls Tabelle bereits existiert (Migration)
+        try:
+            cursor.execute('''
+                ALTER TABLE sessions ADD COLUMN transmitted_at TEXT
+            ''')
+            _LOGGER.info("Datenbank-Schema erweitert: transmitted_at hinzugefügt")
+        except sqlite3.OperationalError:
+            # Spalte existiert bereits
+            pass
 
         # Index für rfid_hash (DB-02 Vorbereitung)
         cursor.execute('''
@@ -254,3 +287,68 @@ class SessionManager:
         conn.close()
 
         return [dict(row) for row in rows]
+
+    def transmit_completed_sessions(self, api_client: Any) -> Dict[str, Any]:
+        """
+        Überträgt abgeschlossene (noch nicht übertragene) Sessions an Dolibarr
+
+        Args:
+            api_client: WallboxApiClient Instanz für API-Calls
+
+        Returns:
+            Dict mit transmitted, failed, errors
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Sessions finden: end_time IS NOT NULL und transmitted_at IS NULL
+        cursor.execute('''
+            SELECT id, rfid_hash, wallbox_id, start_time, end_time, total_kwh
+            FROM sessions
+            WHERE end_time IS NOT NULL AND transmitted_at IS NULL
+        ''')
+
+        rows = cursor.fetchall()
+
+        result = {
+            "transmitted": 0,
+            "failed": 0,
+            "errors": []
+        }
+
+        for row in rows:
+            session_id = row[0]
+            session_data = {
+                "rfid_hash": row[1],
+                "wallbox_id": row[2],
+                "start_time": format_iso8601(row[3]),
+                "end_time": format_iso8601(row[4]),
+                "kwh": row[5] if row[5] else 0.0
+            }
+
+            # Session an Dolibarr übertragen
+            success, error = api_client.transmit_session(session_data)
+
+            if success:
+                # transmitted_at setzen
+                cursor.execute('''
+                    UPDATE sessions SET transmitted_at = ? WHERE id = ?
+                ''', (datetime.now().isoformat(), session_id))
+                result["transmitted"] += 1
+                self._logger.info("Session %s erfolgreich übertragen", session_id)
+            else:
+                error_msg = f"Session {session_id}: {error}"
+                result["errors"].append(error_msg)
+                result["failed"] += 1
+                self._logger.error("Fehler bei Session %s: %s", session_id, error)
+
+                # Bei Fehler: Schleife abbrechen (keine weiteren Transmissions)
+                break
+
+        conn.commit()
+        conn.close()
+
+        self._logger.info("API-Übertragung abgeschlossen: %s übertragen, %s fehlgeschlagen",
+                         result["transmitted"], result["failed"])
+
+        return result
