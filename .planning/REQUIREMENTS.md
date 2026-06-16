@@ -49,9 +49,16 @@
 
 ## Traceability
 
-| REQ-ID | Phase | Plan |
-|--------|-------|------|
-| MON-01–03 | Phase 6 | TBD |
-| ALT-01–02 | Phase 6 | TBD |
-| LOG-01–03 | Phase 7 | TBD |
-| RET-01–03 | Phase 7 | TBD |
+| REQ-ID | Phase | Plan | Status |
+|--------|-------|------|--------|
+| MON-01 | Phase 6 | TBD | Pending |
+| MON-02 | Phase 6 | TBD | Pending |
+| MON-03 | Phase 6 | TBD | Pending |
+| ALT-01 | Phase 7 | TBD | Pending |
+| ALT-02 | Phase 7 | TBD | Pending |
+| LOG-01 | Phase 7 | TBD | Pending |
+| LOG-02 | Phase 7 | TBD | Pending |
+| LOG-03 | Phase 7 | TBD | Pending |
+| RET-01 | Phase 8 | TBD | Pending |
+| RET-02 | Phase 8 | TBD | Pending |
+| RET-03 | Phase 8 | TBD | Pending |

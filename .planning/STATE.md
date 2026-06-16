@@ -9,10 +9,23 @@
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 6 — Monitoring & Status
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-16 — Milestone v1.1 started
+Status: Roadmap defined, ready for planning
+Last activity: 2026-06-16 — v1.1 roadmap created (Phases 6-8)
+
+```
+Progress: v1.1 [          ] 0% (0/3 phases)
+```
+
+## Performance Metrics
+
+| Metric | v1.0 | v1.1 |
+|--------|------|------|
+| Phases | 5 | 3 planned |
+| Plans | 10 | TBD |
+| Requirements | 40/40 | 0/11 |
+| Status | Shipped | In progress |
 
 ## Accumulated Context
 
@@ -36,8 +49,14 @@ Last activity: 2026-06-16 — Milestone v1.1 started
 | Category | Item | Status |
 |----------|------|--------|
 | requirement | PER-04 (WAL mode) not tracked in SUMMARY frontmatter | documentation gap |
-| requirement | BIL-07 (Dolibarr invoice creation) deferred as optional | optional, deferred |
+| requirement | BIL-07 (Dolibarr invoice creation) deferred as optional | optional, deferred to v1.2+ |
+
+### v1.1 Todos
+
+- [ ] Plan Phase 6: Monitoring & Status (MON-01, MON-02, MON-03)
+- [ ] Plan Phase 7: Alerts & Logging (ALT-01, ALT-02, LOG-01, LOG-02, LOG-03)
+- [ ] Plan Phase 8: Retry & Dead-letter (RET-01, RET-02, RET-03)
 
 ---
 
-*State updated: 2026-06-16 — Milestone v1.1 started*
+*State updated: 2026-06-16 — v1.1 roadmap defined, Phase 6 next*
