@@ -3,27 +3,20 @@
 ## Project Reference
 
 **Core Value:** Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuellen Aufwand
-**Current Focus:** Milestone v1.0 shipped — planning next milestone
+**Current Focus:** Milestone v1.1 — Robustheit & Monitoring
 **Created:** 2026-05-04
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-06-16
 
 ## Current Position
 
-**Status:** ✅ v1.0 MVP shipped
-**Phases completed:** 5/5
-**Plans completed:** 10/10
-**Requirements covered:** 38/40 (2 partial: PER-04 doc gap, BIL-07 deferred)
-
-## Performance Metrics
-
-- Phases completed: 5/5
-- Plans completed: 10/10
-- Requirements covered: 38/40
-- Sessions worked: All phases complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-16 — Milestone v1.1 started
 
 ## Accumulated Context
 
-### Key Decisions
+### Key Decisions (carried over from v1.0)
 - SQLite für Session-Persistenz (leichtgewichtig, lokal)
 - REST-API mit DOLAPIKEY (Standard in Dolibarr)
 - RFID-Whitelist per YAML (einfach pflegbar für v1)
@@ -38,20 +31,7 @@
 - WAL-Modus für SQLite (PER-04), Neustart-Recovery (PER-02/03)
 - Multi-Wallbox per YAML-Konfiguration (EXT-01)
 
-### Completed Plans
-- [x] **01-01**: HA Addon Foundation (Dockerfile, Websocket API, Hash Utility)
-- [x] **01-02**: Dolibarr Module Skeleton (modWallboxbilling, SQL, Frontend)
-- [x] **02-01**: HA Session Tracking (session_manager.py, SQLite, RFID Whitelist, Debouncing)
-- [x] **02-02**: Dolibarr User Management (wallboxbilling DAO, llx_wallbox_sessions, RFID-Hash, Pricing)
-- [x] **03-01**: HA Addon API Client (api_client.py, session_manager, config, main loop)
-- [x] **03-02**: Dolibarr Custom API Endpoint (api_wallboxbilling.class.php, DB transmitted_at)
-- [x] **04-01**: Dolibarr Billing Class + Cron Job
-- [x] **04-02**: PDF Invoices + CSV/DATEV Export
-- [x] **05-01**: HA Addon Restart Recovery + WAL Mode
-- [x] **05-02**: Multi-Wallbox Support
-
-### Deferred Items
-Items acknowledged and deferred at v1.0 milestone close on 2026-05-11:
+### Deferred Items (from v1.0)
 
 | Category | Item | Status |
 |----------|------|--------|
@@ -60,4 +40,4 @@ Items acknowledged and deferred at v1.0 milestone close on 2026-05-11:
 
 ---
 
-*State updated: 2026-05-11 after v1.0 milestone completion*
+*State updated: 2026-06-16 — Milestone v1.1 started*

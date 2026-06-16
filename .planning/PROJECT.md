@@ -8,7 +8,17 @@ Eine vollständig integrierte Lösung aus einem Home-Assistant-Addon und einem D
 
 Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuellen Aufwand – Ladevorgänge werden erfasst, Nutzer identifiziert und monatlich korrekt abgerechnet.
 
-## Current State (v1.0 — shipped 2026-05-11)
+## Current Milestone: v1.1 Robustheit & Monitoring
+
+**Goal:** Das System beobachtbar und ausfallsicher machen — Fehler werden erkannt, gemeldet und können behoben werden.
+
+**Target features:**
+- Health-Check / Status-Seite im Dolibarr-Modul (Admin-Tab) mit Übertragungsstatus und Fehlerhistorie
+- Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt
+- Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID)
+- Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin)
+
+## Previous State (v1.0 — shipped 2026-05-11)
 
 Das System ist vollständig einsatzbereit:
 
@@ -35,9 +45,15 @@ Code: ~4.100 LOC (Python + PHP + Shell + Config)
 - ✓ **SEC-01–05**: Keine Klartext-Logs, SHA-256, API-Token, Rollen/Rechte, SQL-Injection-Prävention
 - ✓ **EXT-01–03**: Multi-Wallbox, CSV-Export, DATEV-Export
 
-### Active
+### Active (v1.1)
 
-(No active requirements — next milestone will define v1.1 scope)
+- [ ] **MON-01**: Health-Check Status-Seite im Dolibarr-Modul Admin-Tab
+- [ ] **MON-02**: Alert via HA persistent_notification bei Upload-Fehler
+- [ ] **MON-03**: Alert via Dolibarr E-Mail bei Upload-Fehler
+- [ ] **LOG-01**: Strukturiertes Logging mit konfigurierbarem Log-Level
+- [ ] **LOG-02**: Keine sensiblen Daten (RFID, Tokens) in Logs
+- [ ] **RET-01**: Dead-letter Queue für fehlgeschlagene Session-Uploads
+- [ ] **RET-02**: Manueller Retry-Trigger im Dolibarr-Admin
 
 ### Out of Scope
 
@@ -80,4 +96,23 @@ Code: ~4.100 LOC (Python + PHP + Shell + Config)
 
 ---
 
-*Last updated: 2026-05-11 after v1.0 milestone*
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+---
+
+*Last updated: 2026-06-16 — Milestone v1.1 started*
