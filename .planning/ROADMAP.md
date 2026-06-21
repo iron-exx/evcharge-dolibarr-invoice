@@ -42,8 +42,8 @@
   4. Die Status-Seite lädt ohne PHP-Fehler und ohne manuellen Reload des Dolibarr-Moduls
 **Plans**: 3 plans
 Plans:
-- [ ] 06-01-PLAN.md — DB schema migration: upload_status/upload_error/uploaded_at columns in llx_wallbox_sessions
-- [ ] 06-02-PLAN.md — HA-Addon: /health + /session/stop endpoints + upload_status writing in session_manager
+- [x] 06-01-PLAN.md — DB schema migration: upload_status/upload_error/uploaded_at columns in llx_wallbox_sessions
+- [x] 06-02-PLAN.md — HA-Addon: /health + /session/stop endpoints + upload_status writing in session_manager
 - [ ] 06-03-PLAN.md — Dolibarr admin.php: three-tab rebuild with Status-Tab (cURL ping + session table + stop button)
 **UI hint**: yes
 
