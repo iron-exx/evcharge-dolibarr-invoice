@@ -130,20 +130,48 @@ class WallboxbillingApi extends DolibarrApi
             $transmitted_col = 'date_creation';
         }
 
-        $sql_insert = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
-            ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, {$transmitted_col}) "
-            ."VALUES ("
-            .$fk_user.", "
-            ."'".$this->db->escape($rfid_hash)."', "
-            ."'".$this->db->escape($wallbox_id)."', "
-            ."'".$this->db->idate($start_datetime)."', "
-            ."'".$this->db->idate($end_datetime)."', "
-            .(float) $kwh.", "
-            ."0.30, " // Standard-Preis, wird später berechnet
-            ."0.00, " // Gesamtkosten, wird später berechnet
-            ."'completed', "
-            ."'".$now."', "
-            ."'".$now."')";
+        // D-11: Write upload_status='ok' if column exists (requires Plan 01 upgrade to have run)
+        $has_upload_status = false;
+        $check_col = $this->db->query("SHOW COLUMNS FROM ".MAIN_DB_PREFIX."wallbox_sessions LIKE 'upload_status'");
+        if ($check_col && $this->db->num_rows($check_col) > 0) {
+            $has_upload_status = true;
+        }
+
+        if ($has_upload_status) {
+            $sql_insert = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
+                ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, {$transmitted_col}, upload_status, upload_error, uploaded_at) "
+                ."VALUES ("
+                .$fk_user.", "
+                ."'".$this->db->escape($rfid_hash)."', "
+                ."'".$this->db->escape($wallbox_id)."', "
+                ."'".$this->db->idate($start_datetime)."', "
+                ."'".$this->db->idate($end_datetime)."', "
+                .(float) $kwh.", "
+                ."0.30, " // Standard-Preis, wird später berechnet
+                ."0.00, " // Gesamtkosten, wird später berechnet
+                ."'completed', "
+                ."'".$now."', "
+                ."'".$now."', "
+                ."'ok', "           // upload_status = 'ok' (D-11, D-10: Dolibarr write on receipt)
+                ."NULL, "           // upload_error = NULL (no error on successful receipt)
+                ."'".$now."')";     // uploaded_at = NOW()
+        } else {
+            // Fallback: original INSERT without upload_status (column not yet created by Plan 01)
+            $sql_insert = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
+                ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, {$transmitted_col}) "
+                ."VALUES ("
+                .$fk_user.", "
+                ."'".$this->db->escape($rfid_hash)."', "
+                ."'".$this->db->escape($wallbox_id)."', "
+                ."'".$this->db->idate($start_datetime)."', "
+                ."'".$this->db->idate($end_datetime)."', "
+                .(float) $kwh.", "
+                ."0.30, " // Standard-Preis, wird später berechnet
+                ."0.00, " // Gesamtkosten, wird später berechnet
+                ."'completed', "
+                ."'".$now."', "
+                ."'".$now."')";
+        }
 
         $resql = $this->db->query($sql_insert);
         if (!$resql) {
