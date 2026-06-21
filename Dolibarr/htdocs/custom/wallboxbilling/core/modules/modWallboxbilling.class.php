@@ -126,6 +126,9 @@ class modWallboxbilling extends DolibarrModules
             `status` VARCHAR(20) NOT NULL DEFAULT 'active',
             `date_creation` DATETIME NOT NULL,
             `transmitted_at` DATETIME NULL,
+            `upload_status` ENUM('pending','ok','error') NOT NULL DEFAULT 'pending',
+            `upload_error` TEXT NULL,
+            `uploaded_at` DATETIME NULL,
             `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
 
@@ -197,6 +200,9 @@ class modWallboxbilling extends DolibarrModules
             `status` VARCHAR(20) NOT NULL DEFAULT 'active',
             `date_creation` DATETIME NOT NULL,
             `transmitted_at` DATETIME NULL,
+            `upload_status` ENUM('pending','ok','error') NOT NULL DEFAULT 'pending',
+            `upload_error` TEXT NULL,
+            `uploaded_at` DATETIME NULL,
             `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
 
@@ -250,6 +256,24 @@ class modWallboxbilling extends DolibarrModules
             $db->query("ALTER TABLE llx_wallbox_sessions ADD COLUMN transmitted_at DATETIME NULL AFTER date_creation");
         }
 
+        // Upgrade v1.1: upload_status, upload_error, uploaded_at (MON-02, MON-03)
+        $cols_to_add = array(
+            'upload_status' => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_status ENUM('pending','ok','error') NOT NULL DEFAULT 'pending' AFTER transmitted_at",
+            'upload_error'  => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_error TEXT NULL AFTER upload_status",
+            'uploaded_at'   => "ALTER TABLE llx_wallbox_sessions ADD COLUMN uploaded_at DATETIME NULL AFTER upload_error",
+        );
+
+        foreach ($cols_to_add as $col => $alter_sql) {
+            $check = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE '" . $col . "'";
+            $res = $db->query($check);
+            if (!$res || $db->num_rows($res) == 0) {
+                $result_alter = $db->query($alter_sql);
+                if (!$result_alter) {
+                    dol_syslog("WallboxBilling upgrade SQL error for column " . $col . ": " . $db->lasterror, LOG_ERR);
+                }
+            }
+        }
+
         // Billing History Tabelle prüfen und hinzufügen (BIL-01)
         $check_table = "SHOW TABLES LIKE 'llx_wallbox_billing_history'";
         $resTable = $db->query($check_table);
@@ -290,6 +314,24 @@ class modWallboxbilling extends DolibarrModules
         if (!$res || $db->num_rows($res) == 0) {
             $db->query("ALTER TABLE llx_wallbox_sessions ADD COLUMN transmitted_at DATETIME NULL");
             $db->query("CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_transmitted ON llx_wallbox_sessions(transmitted_at)");
+        }
+
+        // Upgrade v1.1: upload_status, upload_error, uploaded_at (MON-02, MON-03)
+        $cols_to_add = array(
+            'upload_status' => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_status ENUM('pending','ok','error') NOT NULL DEFAULT 'pending' AFTER transmitted_at",
+            'upload_error'  => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_error TEXT NULL AFTER upload_status",
+            'uploaded_at'   => "ALTER TABLE llx_wallbox_sessions ADD COLUMN uploaded_at DATETIME NULL AFTER upload_error",
+        );
+
+        foreach ($cols_to_add as $col => $alter_sql) {
+            $check = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE '" . $col . "'";
+            $res = $db->query($check);
+            if (!$res || $db->num_rows($res) == 0) {
+                $result_alter = $db->query($alter_sql);
+                if (!$result_alter) {
+                    dol_syslog("WallboxBilling upgrade SQL error for column " . $col . ": " . $db->lasterror, LOG_ERR);
+                }
+            }
         }
 
         return 1;
