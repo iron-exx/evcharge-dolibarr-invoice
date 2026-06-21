@@ -1,3 +1,18 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: planning
+last_updated: "2026-06-21T19:30:00.000Z"
+last_activity: 2026-06-21 — Phase 6 planned (4 plans in 2 waves)
+progress:
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State: Wallbox-Dolibarr Integration
 
 ## Project Reference
@@ -11,8 +26,8 @@
 
 Phase: 6 — Monitoring & Status
 Plan: —
-Status: Roadmap defined, ready for planning
-Last activity: 2026-06-16 — v1.1 roadmap created (Phases 6-8)
+Status: Ready to execute (4 plans in 2 waves)
+Last activity: 2026-06-21 — Phase 6 planned (Wave 0: Tests, Wave 1: DB+HA-Addon, Wave 2: admin.php)
 
 ```
 Progress: v1.1 [          ] 0% (0/3 phases)
@@ -30,6 +45,7 @@ Progress: v1.1 [          ] 0% (0/3 phases)
 ## Accumulated Context
 
 ### Key Decisions (carried over from v1.0)
+
 - SQLite für Session-Persistenz (leichtgewichtig, lokal)
 - REST-API mit DOLAPIKEY (Standard in Dolibarr)
 - RFID-Whitelist per YAML (einfach pflegbar für v1)

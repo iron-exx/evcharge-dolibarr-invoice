@@ -513,22 +513,16 @@ async def start_health_server(port: int = 8099) -> web.AppRunner:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Wo schreibt das HA-Addon upload_status='error'?**
-   - What we know: api_client.py gibt `Tuple[bool, str]` zurueck; session_manager.py wertet dies aus
-   - What's unclear: Soll HA-Addon via separaten API-PATCH-Call an Dolibarr schreiben, oder setzt Dolibarr den Status beim POST-Empfang selbst?
-   - Recommendation: Einfachster Weg: Dolibarr-`session.php` setzt `upload_status='ok'` beim Empfang. Fuer `error`: HA-Addon sendet Fehler als zusaetzliches Feld im POST-Body oder via separatem Endpunkt. Dies muss im Plan als explizite Aufgabe definiert werden.
+1. **Wo schreibt das HA-Addon upload_status='error'?** *(RESOLVED)*
+   - **Resolution:** Dual-Write-Ansatz: `session_manager.py` schreibt `upload_status` in SQLite nach dem Aufruf von `api_client.transmit_session()` (Plan 06-02 Task 2). Dolibarr's `api_wallboxbilling.class.php` setzt `upload_status='ok'`, `upload_error=NULL`, `uploaded_at=NOW()` beim erfolgreichen Empfang des POST-Requests (Plan 06-03 Task 2). Kein separater PATCH-Endpunkt nötig.
 
-2. **Befindet sich WALLBOXBILLING_HA_URL bereits als Dolibarr-Konstante in der DB?**
-   - What we know: admin.php zeigt bereits `WALLBOXBILLING_DEFAULT_PRICE` als Konfigurationsfeld
-   - What's unclear: Ist die HA-URL schon als Konfigurationsvariable gespeichert?
-   - Recommendation: Im Status-Tab HA-URL aus bestehender Konfiguration lesen. Falls nicht vorhanden: Feld im "Konfiguration"-Tab ergaenzen (Plan-Aufgabe).
+2. **Befindet sich WALLBOXBILLING_HA_URL bereits als Dolibarr-Konstante in der DB?** *(RESOLVED)*
+   - **Resolution:** Plan 06-03 Task 1 liest die URL via `getDolGlobalString('WALLBOXBILLING_HA_URL')`. Falls nicht gesetzt, zeigt der Status-Tab einen Hinweistext. Die bestehende Konfigurationsstruktur (admin.php "Konfiguration"-Tab) wird in dieser Phase nicht erweitert — das HA-URL-Feld wurde bereits in Phase 1 angelegt.
 
-3. **SQLite im HA-Addon: upload_status auch dort nachfuehren?**
-   - What we know: SQLite hat `sessions`-Tabelle mit `transmitted_at`; keine upload_status-Spalte
-   - What's unclear: Phase 6 schreibt upload_status in MySQL (Dolibarr). Braucht SQLite eine eigene Spalte fuer lokale Nachverfolgung (Phase 7/8 vorbereitung)?
-   - Recommendation: Fuer Phase 6 kein SQLite-Schema-Change noetig (nur Dolibarr MySQL). SQLite-Erweiterung auf Phase 8 (Retry/Dead-letter) verschieben.
+3. **SQLite im HA-Addon: upload_status auch dort nachfuehren?** *(RESOLVED)*
+   - **Resolution:** Ja — Plan 06-02 Task 2 ergänzt `upload_status` und `upload_error` auch in der SQLite `sessions`-Tabelle. Dies bereitet Phase 8 (Retry/Dead-letter) vor, ohne zusätzlichen Aufwand in Phase 6.
 
 ---
 

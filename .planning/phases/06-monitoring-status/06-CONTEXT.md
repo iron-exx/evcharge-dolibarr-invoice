@@ -35,6 +35,13 @@ Nicht in Scope: Alerts/E-Mail (Phase 7), Retry-Logik (Phase 8).
 - **D-10:** Status-Werte: `pending` (noch nicht übertragen), `ok` (erfolgreich), `error` (fehlgeschlagen).
 - **D-11:** Dolibarr schreibt `upload_status` und `upload_error` beim API-Upload-Versuch.
 
+### Manuelle Session-Steuerung (neu, 2026-06-21)
+- **D-12:** Admin kann eine aktive Ladesitzung aus dem Status-Tab heraus manuell beenden — Button "Session beenden" in der Session-Tabelle für Einträge mit `upload_status = pending` oder aktive Sessions.
+- **D-13:** Nach manuellem Beenden wird die Session sofort an Dolibarr übermittelt — kein Warten auf den nächsten automatischen Zyklus.
+- **D-14:** Technisch: Dolibarr sendet POST-Request an HA-Addon-Endpunkt `/session/stop` mit `session_id`. HA-Addon beendet die Session in SQLite und triggert sofortigen Upload.
+- **D-15:** Der `/session/stop`-Endpunkt wird in `main.py` neben `/health` als neuer aiohttp-Route implementiert.
+- **D-16:** UI-Feedback: Nach erfolgreichem Stop/Upload aktualisiert sich die Status-Tabelle (Redirect oder AJAX). Fehlermeldung wenn HA-Addon nicht erreichbar.
+
 ### Claude's Discretion
 - Timeout-Wert für den cURL-Ping (empfohlen: 3-5s)
 - Genaue Tab-Implementierung (Dolibarr `dol_get_fiche_head` Pattern)
