@@ -40,7 +40,11 @@
   2. Admin sieht eine Tabelle der letzten N übertragenen Sessions mit Datum, Wallbox-ID und Übertragungsstatus
   3. Admin sieht fehlgeschlagene Übertragungen mit der zugehörigen Fehlermeldung (kein generischer Fehlertext)
   4. Die Status-Seite lädt ohne PHP-Fehler und ohne manuellen Reload des Dolibarr-Moduls
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 06-01-PLAN.md — DB schema migration: upload_status/upload_error/uploaded_at columns in llx_wallbox_sessions
+- [ ] 06-02-PLAN.md — HA-Addon: /health + /session/stop endpoints + upload_status writing in session_manager
+- [ ] 06-03-PLAN.md — Dolibarr admin.php: three-tab rebuild with Status-Tab (cURL ping + session table + stop button)
 **UI hint**: yes
 
 ### Phase 7: Alerts & Logging
@@ -76,7 +80,7 @@
 | 3. API Integration | v1.0 | 2/2 | Complete ✓ | 2026-05-06 |
 | 4. Billing + Invoicing + Export | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 5. Hardening + Multi-Wallbox | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
-| 6. Monitoring & Status | v1.1 | 0/? | Not started | - |
+| 6. Monitoring & Status | v1.1 | 0/3 | Not started | - |
 | 7. Alerts & Logging | v1.1 | 0/? | Not started | - |
 | 8. Retry & Dead-letter | v1.1 | 0/? | Not started | - |
 
@@ -86,4 +90,4 @@
 *v1.0 requirements: 40/40 ✓*
 *v1.1 requirements: 11/11 ✓*
 *Total coverage: 51/51 ✓*
-*Last updated: 2026-06-16 — v1.1 phases added*
+*Last updated: 2026-06-21 — Phase 6 planned (3 plans)*
