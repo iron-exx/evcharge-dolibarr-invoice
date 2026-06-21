@@ -7,6 +7,7 @@ liest Alfen Wallbox Sensoren aus und implementiert Session-Tracking.
 """
 import asyncio
 import aiohttp
+from aiohttp import web
 import json
 import logging
 import os
@@ -46,6 +47,8 @@ SENSOR_STATE = None  # Wird dynamisch aus Alfen Integration ermittelt
 session_manager = None
 current_config = {}
 ha_ws = None
+api_client = None  # WallboxApiClient Instanz (wird in main() initialisiert)
+health_runner = None  # aiohttp AppRunner für /health und /session/stop Endpunkte
 
 
 def load_config():
@@ -244,9 +247,51 @@ async def check_startup_session():
         # Hier könnte später geprüft werden ob Wallbox noch lädt (Phase 5)
 
 
+async def handle_health(request):
+    """GET /health - Liveness-Check fuer Dolibarr cURL-Ping (MON-01, D-04)"""
+    return web.json_response({"status": "ok", "addon": "wallbox-dolibarr"}, status=200)
+
+
+async def handle_session_stop(request):
+    """POST /session/stop - Manuelle Session-Beendigung durch Dolibarr-Admin (D-14, D-15)"""
+    global session_manager, api_client
+    try:
+        data = await request.json()
+        session_id = int(data.get('session_id', 0))
+        if not session_id:
+            return web.json_response({"error": "session_id required"}, status=400)
+
+        if not api_client:
+            return web.json_response({"error": "API client not configured"}, status=503)
+
+        result = session_manager.transmit_completed_sessions(api_client)
+        return web.json_response(
+            {"status": "ok", "transmitted": result.get("transmitted", 0), "failed": result.get("failed", 0)},
+            status=200
+        )
+    except (ValueError, TypeError) as e:
+        return web.json_response({"error": "invalid session_id"}, status=400)
+    except Exception as e:
+        _LOGGER.error("session/stop Fehler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def start_health_server(port: int = 8099) -> web.AppRunner:
+    """Startet aiohttp HTTP-Server fuer /health und /session/stop Endpunkte (D-04, D-15)"""
+    app = web.Application()
+    app.router.add_get('/health', handle_health)
+    app.router.add_post('/session/stop', handle_session_stop)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    _LOGGER.info("Health-Endpunkt gestartet auf Port %d", port)
+    return runner
+
+
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
-    global session_manager, current_config, ha_ws
+    global session_manager, current_config, ha_ws, api_client, health_runner
 
     _LOGGER.info("Wallbox-Dolibarr Addon startet...")
 
@@ -257,7 +302,7 @@ async def main():
     current_config = load_config()
 
     # API Client initialisieren (nur wenn konfiguriert, Task 4)
-    api_client = None
+    # api_client ist globale Variable (handle_session_stop braucht Zugriff)
     api_config = current_config.get("api", {})
     if api_config.get("dolibarr_url"):
         try:
@@ -321,6 +366,10 @@ async def main():
             transmission_task = asyncio.create_task(periodic_transmission())
             _LOGGER.info("API-Transmission Hintergrund-Task gestartet")
 
+        # HTTP-Server starten via start_health_server() (MON-01, D-04)
+        health_runner = await start_health_server(port=8099)
+        _LOGGER.info("Wallbox-Dolibarr HTTP-Server bereit auf Port 8099")
+
         # Sensor-Updates abonnieren (event-basiert, D-10) - blockiert bis zur Unterbrechung
         await ha_ws.subscribe_entities(sensor_callback)
 
@@ -331,6 +380,8 @@ async def main():
         # Crash + Supervisor restart (D-11)
         raise
     finally:
+        if health_runner:
+            await health_runner.cleanup()
         await ha_ws.disconnect()
 
 

@@ -27,6 +27,9 @@ STOPPED = "Stopped"
 # Debounce-Zeit in Sekunden (HA-07)
 DEBOUNCE_SECONDS = 7
 
+# Modul-Level Logger (wird auch in _init_database() vor self._logger benutzt)
+_LOGGER = logging.getLogger(__name__)
+
 
 def format_iso8601(dt: Any) -> str:
     """
@@ -89,6 +92,17 @@ class SessionManager:
         except sqlite3.OperationalError:
             # Spalte existiert bereits
             pass
+
+        # upload_status und upload_error fuer Uebertragungsprotokoll (MON-01, D-09, D-10)
+        try:
+            cursor.execute('ALTER TABLE sessions ADD COLUMN upload_status TEXT DEFAULT "pending"')
+        except sqlite3.OperationalError:
+            pass  # Spalte existiert bereits
+
+        try:
+            cursor.execute('ALTER TABLE sessions ADD COLUMN upload_error TEXT')
+        except sqlite3.OperationalError:
+            pass  # Spalte existiert bereits
 
         # Index für rfid_hash (DB-02 Vorbereitung)
         cursor.execute('''
@@ -330,10 +344,10 @@ class SessionManager:
             success, error = api_client.transmit_session(session_data)
 
             if success:
-                # transmitted_at setzen
+                # transmitted_at, upload_status und upload_error setzen (MON-01, D-09)
                 cursor.execute('''
-                    UPDATE sessions SET transmitted_at = ? WHERE id = ?
-                ''', (datetime.now().isoformat(), session_id))
+                    UPDATE sessions SET transmitted_at = ?, upload_status = ?, upload_error = ? WHERE id = ?
+                ''', (datetime.now().isoformat(), 'ok', None, session_id))
                 result["transmitted"] += 1
                 self._logger.info("Session %s erfolgreich übertragen", session_id)
             else:
@@ -341,6 +355,11 @@ class SessionManager:
                 result["errors"].append(error_msg)
                 result["failed"] += 1
                 self._logger.error("Fehler bei Session %s: %s", session_id, error)
+
+                # upload_status='error' und Fehlermeldung in SQLite schreiben (MON-03)
+                cursor.execute('''
+                    UPDATE sessions SET upload_status = ?, upload_error = ? WHERE id = ?
+                ''', ('error', error[:1000] if error else 'Unknown error', session_id))
 
                 # Bei Fehler: Schleife abbrechen (keine weiteren Transmissions)
                 break
