@@ -12,13 +12,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 
 @pytest.fixture
-def in_memory_session_manager():
-    """SessionManager backed by an in-memory SQLite database.
-    Safe for parallel test execution — no shared state.
+def in_memory_session_manager(tmp_path):
+    """SessionManager backed by a temporary file SQLite database.
+    Uses tmp_path (pytest fixture) for isolation — file removed after test.
+    (:memory: does not work with multiple connections per method call.)
     """
     try:
         from session_manager import SessionManager
-        sm = SessionManager(db_path=':memory:')
+        db_file = str(tmp_path / "test_sessions.db")
+        sm = SessionManager(db_path=db_file)
         yield sm
     except ImportError:
         pytest.skip("session_manager module not importable in this environment")
