@@ -12,11 +12,13 @@ Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuell
 
 **Goal:** Das System beobachtbar und ausfallsicher machen — Fehler werden erkannt, gemeldet und können behoben werden.
 
+**Progress:** Phase 6 complete 2026-06-22 (1/3 phases) — Phase 7 next
+
 **Target features:**
-- Health-Check / Status-Seite im Dolibarr-Modul (Admin-Tab) mit Übertragungsstatus und Fehlerhistorie
-- Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt
-- Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID)
-- Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin)
+- ✓ Health-Check / Status-Seite im Dolibarr-Modul (Admin-Tab) mit Übertragungsstatus und Fehlerhistorie — Phase 6 done
+- Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt — Phase 7
+- Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID) — Phase 7
+- Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin) — Phase 8
 
 ## Previous State (v1.0 — shipped 2026-05-11)
 
@@ -45,11 +47,13 @@ Code: ~4.100 LOC (Python + PHP + Shell + Config)
 - ✓ **SEC-01–05**: Keine Klartext-Logs, SHA-256, API-Token, Rollen/Rechte, SQL-Injection-Prävention
 - ✓ **EXT-01–03**: Multi-Wallbox, CSV-Export, DATEV-Export
 
-### Active (v1.1)
+### Validated (v1.1 — Phase 6 complete 2026-06-22)
 
-- [ ] **MON-01**: Health-Check Status-Seite im Dolibarr-Modul Admin-Tab
-- [ ] **MON-02**: Alert via HA persistent_notification bei Upload-Fehler
-- [ ] **MON-03**: Alert via Dolibarr E-Mail bei Upload-Fehler
+- ✓ **MON-01**: Health-Check Status-Seite im Dolibarr-Modul Admin-Tab — cURL-Ping + Status-Icon im Status-Tab
+- ✓ **MON-02**: Session-Tabelle im Admin-Tab (Datum, Wallbox-ID, kWh, upload_status) — inklusive Stop-Button
+- ✓ **MON-03**: Fehlgeschlagene Übertragungen mit Fehlermeldung im Admin-Tab sichtbar (upload_error Spalte)
+
+### Active (v1.1 — Phase 7 next)
 - [ ] **LOG-01**: Strukturiertes Logging mit konfigurierbarem Log-Level
 - [ ] **LOG-02**: Keine sensiblen Daten (RFID, Tokens) in Logs
 - [ ] **RET-01**: Dead-letter Queue für fehlgeschlagene Session-Uploads
