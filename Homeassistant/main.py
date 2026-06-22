@@ -238,13 +238,49 @@ async def sensor_callback(entity_id: str, state: Dict[str, Any]):
 
 
 async def check_startup_session():
-    """Prüft beim Start ob eine aktive Session existiert (PER-01)"""
-    global session_manager
-    active = session_manager.get_active_session()
-    if active:
-        _LOGGER.info("Aktive Session nach Neustart gefunden: ID=%s, RFID=%s..., Status: %s",
-                    active['id'], active['rfid_hash'][:16], active['status'])
-        # Hier könnte später geprüft werden ob Wallbox noch lädt (Phase 5)
+    """Prüft beim Start ob eine aktive Session existiert und führt Recovery durch (PER-02, PER-03)"""
+    global session_manager, api_client
+
+    # Startup Recovery: Alle aktiven Sessions finden (PER-02)
+    recovered_sessions = session_manager.recover_active_sessions()
+
+    if recovered_sessions:
+        _LOGGER.info("=== Startup Recovery: %d aktive Sessions gefunden ===", len(recovered_sessions))
+
+        for session in recovered_sessions:
+            wallbox_status = None
+
+            # Versuche Wallbox-Status zu ermitteln (wenn API verfügbar)
+            if api_client:
+                try:
+                    status_result = api_client.get_wallbox_status(session['wallbox_id'])
+                    if status_result and 'status' in status_result:
+                        wallbox_status = status_result['status']
+                except Exception as e:
+                    _LOGGER.warning("Konnte Wallbox-Status nicht abfragen: %s", e)
+
+            # Recovery-Entscheidung treffen (PER-03)
+            result = session_manager.handle_recovered_session(session, wallbox_status)
+
+            _LOGGER.info("Session %d: %s (%s)", session['id'], result['action'], result['reason'])
+
+            if result['action'] == 'terminate':
+                # Session war schon beendet - als unvollständig markieren
+                session_manager.mark_session_incomplete(session['id'], result['reason'])
+                _LOGGER.warning("Session %d als unvollständig markiert (Wallbox gestoppt)", session['id'])
+
+            elif result['action'] == 'incomplete':
+                # Status unbekannt - als unvollständig markieren
+                session_manager.mark_session_incomplete(session['id'], result['reason'])
+                _LOGGER.warning("Session %d als unvollständig markiert (Status unbekannt)", session['id'])
+
+            elif result['action'] == 'continue':
+                # Session wird fortgesetzt - läuft weiter
+                _LOGGER.info("Session %d wird fortgesetzt (Wallbox noch aktiv)", session['id'])
+
+        _LOGGER.info("=== Startup Recovery abgeschlossen ===")
+    else:
+        _LOGGER.info("Keine aktiven Sessions beim Start - alles bereit")
 
 
 async def handle_health(request):
@@ -263,6 +299,9 @@ async def handle_session_stop(request):
 
         if not api_client:
             return web.json_response({"error": "API client not configured"}, status=503)
+
+        # CR-03: Spezifische Session beenden bevor bulk-transmit (VERIFICATION.md Gap 2)
+        session_manager.mark_session_incomplete(session_id, reason='admin_stop')
 
         result = session_manager.transmit_completed_sessions(api_client)
         return web.json_response(
