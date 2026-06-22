@@ -8,7 +8,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-5 (shipped 2026-05-11)
-- [ ] **v1.1 Robustheit & Monitoring** — Phases 6-8
+- [ ] **v1.1 Robustheit & Monitoring** — Phases 6-8 (1/3 complete)
 
 ## Phases
 
@@ -25,7 +25,7 @@
 
 **v1.1 Robustheit & Monitoring (Phases 6-8):**
 
-- [ ] **Phase 6: Monitoring & Status** — Dolibarr Admin-Tab zeigt Systemstatus und Session-Historie
+- [x] **Phase 6: Monitoring & Status** — Dolibarr Admin-Tab zeigt Systemstatus und Session-Historie — completed 2026-06-22
 - [ ] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert
 - [ ] **Phase 8: Retry & Dead-letter** — Fehlgeschlagene Uploads werden gespeichert und können manuell neu gestartet werden
 
@@ -45,7 +45,9 @@ Plans:
 - [x] 06-01-PLAN.md — DB schema migration: upload_status/upload_error/uploaded_at columns in llx_wallbox_sessions
 - [x] 06-02-PLAN.md — HA-Addon: /health + /session/stop endpoints + upload_status writing in session_manager
 - [x] 06-03-PLAN.md — Dolibarr admin.php: three-tab rebuild with Status-Tab (cURL ping + session table + stop button)
+- [x] 06-04-PLAN.md — Gap-closure: CR-01/CR-02/CR-03/WR-06/WR-07/WR-08 fixes
 **UI hint**: yes
+**Completed**: 2026-06-22 (5/5 plans, 9/9 must-haves verified, human UAT pending)
 
 ### Phase 7: Alerts & Logging
 **Goal**: Das System erkennt Upload-Fehler selbstständig und informiert den Admin — in Home Assistant und per E-Mail
@@ -80,7 +82,7 @@ Plans:
 | 3. API Integration | v1.0 | 2/2 | Complete ✓ | 2026-05-06 |
 | 4. Billing + Invoicing + Export | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 5. Hardening + Multi-Wallbox | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
-| 6. Monitoring & Status | v1.1 | 0/3 | Not started | - |
+| 6. Monitoring & Status | v1.1 | 5/5 | Complete ✓ | 2026-06-22 |
 | 7. Alerts & Logging | v1.1 | 0/? | Not started | - |
 | 8. Retry & Dead-letter | v1.1 | 0/? | Not started | - |
 
@@ -90,4 +92,4 @@ Plans:
 *v1.0 requirements: 40/40 ✓*
 *v1.1 requirements: 11/11 ✓*
 *Total coverage: 51/51 ✓*
-*Last updated: 2026-06-21 — Phase 6 planned (3 plans)*
+*Last updated: 2026-06-22 — Phase 6 complete (5/5 plans)*

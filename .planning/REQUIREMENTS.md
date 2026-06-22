@@ -10,9 +10,9 @@
 
 ### Monitoring / Status
 
-- [ ] **MON-01**: Nutzer sieht im Dolibarr-Admin-Tab den aktuellen Systemstatus (API erreichbar / nicht erreichbar)
-- [ ] **MON-02**: Nutzer sieht im Admin-Tab die letzten N übertragenen Sessions (Datum, Wallbox-ID, Status)
-- [ ] **MON-03**: Nutzer sieht im Admin-Tab fehlgeschlagene Übertragungen mit Fehlermeldung
+- [x] **MON-01**: Nutzer sieht im Dolibarr-Admin-Tab den aktuellen Systemstatus (API erreichbar / nicht erreichbar) — Validated in Phase 6 (2026-06-22)
+- [x] **MON-02**: Nutzer sieht im Admin-Tab die letzten N übertragenen Sessions (Datum, Wallbox-ID, Status) — Validated in Phase 6 (2026-06-22)
+- [x] **MON-03**: Nutzer sieht im Admin-Tab fehlgeschlagene Übertragungen mit Fehlermeldung — Validated in Phase 6 (2026-06-22)
 
 ### Alerts
 
@@ -51,9 +51,9 @@
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| MON-01 | Phase 6 | TBD | Pending |
-| MON-02 | Phase 6 | TBD | Pending |
-| MON-03 | Phase 6 | TBD | Pending |
+| MON-01 | Phase 6 | 06-01/06-02/06-03/06-04 | Complete ✓ |
+| MON-02 | Phase 6 | 06-01/06-03/06-04 | Complete ✓ |
+| MON-03 | Phase 6 | 06-01/06-03/06-04 | Complete ✓ |
 | ALT-01 | Phase 7 | TBD | Pending |
 | ALT-02 | Phase 7 | TBD | Pending |
 | LOG-01 | Phase 7 | TBD | Pending |
