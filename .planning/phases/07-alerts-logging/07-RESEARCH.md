@@ -413,7 +413,7 @@ logging.getLogger().setLevel(getattr(logging, _log_level, logging.INFO))
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **ALT-01: notification_id — pro Session oder global?**
    - What we know: `notification_id="wallbox_upload_error"` überschreibt immer dieselbe Notification

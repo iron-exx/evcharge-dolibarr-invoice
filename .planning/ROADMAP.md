@@ -26,7 +26,7 @@
 **v1.1 Robustheit & Monitoring (Phases 6-8):**
 
 - [x] **Phase 6: Monitoring & Status** — Dolibarr Admin-Tab zeigt Systemstatus und Session-Historie — completed 2026-06-22
-- [ ] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert
+- [ ] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert *(planned 2026-06-22 — 3 plans)*
 - [ ] **Phase 8: Retry & Dead-letter** — Fehlgeschlagene Uploads werden gespeichert und können manuell neu gestartet werden
 
 ## Phase Details
