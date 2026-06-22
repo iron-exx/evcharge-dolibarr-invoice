@@ -100,6 +100,17 @@ class modWallboxbilling extends DolibarrModules
             )
         );
 
+        // Export-Module registrieren (EXT-02, EXT-03)
+        $this->export_modules = array(
+            0 => array(
+                'label' => 'Wallbox Billing',
+                'type' => 'export',
+                'export_label' => 'Wallbox Abrechnungen',
+                'icon' => 'wallboxbilling@wallboxbilling',
+                'class' => 'wallboxbilling/class/export.class.php'
+            )
+        );
+
         // Modul-Initialisierung
         $this->init();
     }
@@ -171,7 +182,7 @@ class modWallboxbilling extends DolibarrModules
             $this->db->query($query);
         }
 
-        return $this->__construct($this->db);
+        return 1;
     }
 
     /**
