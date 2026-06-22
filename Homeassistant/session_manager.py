@@ -57,14 +57,19 @@ class SessionManager:
 
     def __init__(self, db_path: str = "/data/sessions.db"):
         self.db_path = db_path
+        self._logger = logging.getLogger(__name__)
         self._init_database()
         self._last_rfid_time: Dict[str, float] = {}  # Für Debouncing
-        self._logger = logging.getLogger(__name__)
 
     def _init_database(self):
         """Initialisiert die SQLite-Datenbank mit Sessions-Tabelle (PER-01, DB-01 Vorbereitung)"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+
+        # WAL Mode aktivieren für bessere Concurrenty (PER-02)
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
 
         # Tabelle für Lade-Sessions (HA-03, Felder für Phase 2)
         cursor.execute('''
@@ -116,7 +121,7 @@ class SessionManager:
 
         conn.commit()
         conn.close()
-        self._logger.info("SQLite Datenbank initialisiert: %s", self.db_path)
+        self._logger.info("SQLite Datenbank initialisiert mit WAL Mode: %s", self.db_path)
 
     def debounce_rfid(self, rfid_hex: str) -> bool:
         """
@@ -191,6 +196,107 @@ class SessionManager:
         if row:
             return dict(row)
         return None
+
+    def recover_active_sessions(self) -> list:
+        """
+        Findet aktive Sessions beim Neustart (PER-02)
+        Prüft ob Session noch aktiv oder abgeschlossen
+
+        Returns:
+            Liste der wiederhergestellten Sessions
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM sessions
+            WHERE status = 'active'
+            ORDER BY start_time DESC
+        ''')
+
+        active_sessions = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        if active_sessions:
+            self._logger.info("Gefundene aktive Sessions beim Start: %d", len(active_sessions))
+
+        return active_sessions
+
+    def handle_recovered_session(self, session: Dict, wallbox_status: str = None) -> Dict:
+        """
+        Behandelt eine wiederhergestellte Session beim Neustart (PER-03)
+
+        Args:
+            session: Die wiederhergestelle Session
+            wallbox_status: Aktueller Wallbox-Status (falls verfügbar)
+
+        Returns:
+            Dict mit action und session
+        """
+        if wallbox_status in [None, 'Unknown']:
+            return {
+                'action': 'incomplete',
+                'session': session,
+                'reason': 'status_unknown'
+            }
+
+        if wallbox_status in ['Idle', 'Stopped']:
+            return {
+                'action': 'terminate',
+                'session': session,
+                'reason': 'wallbox_stopped'
+            }
+
+        return {
+            'action': 'continue',
+            'session': session,
+            'reason': 'still_charging'
+        }
+
+    def mark_session_incomplete(self, session_id: int, reason: str = 'crash_recovery'):
+        """
+        Markiert eine Session als unvollständig (PER-03)
+
+        Args:
+            session_id: ID der Session
+            reason: Grund für die Markierung
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE sessions
+            SET status = 'incomplete', end_time = ?
+            WHERE id = ?
+        ''', (datetime.now().isoformat(), session_id))
+        conn.commit()
+        conn.close()
+        self._logger.warning("Session %d als unvollständig markiert: %s", session_id, reason)
+
+    def get_sessions_by_wallbox(self, wallbox_id: str) -> list:
+        """
+        Holt alle Sessions für eine spezifische Wallbox (EXT-01)
+
+        Args:
+            wallbox_id: ID der Wallbox
+
+        Returns:
+            Liste von Session-Dicts
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM sessions
+            WHERE wallbox_id = ?
+            ORDER BY start_time DESC
+        ''', (wallbox_id,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [dict(row) for row in rows]
 
     def start_session(self, rfid_hex: str, start_energy_kwh: float, wallbox_id: str = "alfen_eve") -> Optional[int]:
         """
