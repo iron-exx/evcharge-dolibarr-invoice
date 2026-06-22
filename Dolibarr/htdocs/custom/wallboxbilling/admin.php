@@ -46,6 +46,7 @@ if ($action == 'update_rfid') {
 
 // Action: Session manuell beenden (D-12, D-13, D-14, D-16)
 if ($action == 'stop_session') {
+    checkToken();
     $session_id = GETPOST('session_id', 'int');
     $ha_url = getDolGlobalString('WALLBOXBILLING_HA_URL', '');
 
@@ -142,26 +143,23 @@ if ($tab == 'status') {
     print '<tr class="liste_titre">';
     print '<td colspan="2">'.$langs->trans('APIStatus').'</td>';
     print '</tr>';
-    print '<tr class="oddeven"><td>';
+    print '<tr class="oddeven">';
 
     if ($health_result['status'] == 'ok') {
-        print '<span style="color:green">&#x2705; '.$langs->trans('Reachable').'</span>';
+        print '<td><span style="color:green">&#x2705; '.$langs->trans('Reachable').'</span></td>';
+        print '<td></td>';
     } elseif ($health_result['status'] == 'unreachable') {
-        print '<span style="color:red">&#x274C; '.$langs->trans('Unreachable').'</span>';
-        print '</td><td>'.htmlspecialchars($health_result['detail'], ENT_QUOTES, 'UTF-8');
+        print '<td><span style="color:red">&#x274C; '.$langs->trans('Unreachable').'</span></td>';
+        print '<td>'.htmlspecialchars($health_result['detail'], ENT_QUOTES, 'UTF-8').'</td>';
     } elseif ($health_result['status'] == 'error') {
-        print '<span style="color:orange">&#x26A0;&#xFE0F; '.$langs->trans('Error').': '.htmlspecialchars($health_result['detail'], ENT_QUOTES, 'UTF-8').'</span>';
+        print '<td><span style="color:orange">&#x26A0;&#xFE0F; '.$langs->trans('Error').': '.htmlspecialchars($health_result['detail'], ENT_QUOTES, 'UTF-8').'</span></td>';
+        print '<td></td>';
     } else {
-        print $langs->trans('NotConfigured').' (WALLBOXBILLING_HA_URL)';
+        print '<td>'.$langs->trans('NotConfigured').' (WALLBOXBILLING_HA_URL)</td>';
+        print '<td></td>';
     }
 
-    print '</td><td>';
-    if ($health_result['status'] == 'unreachable') {
-        // already printed in td above
-    } else {
-        print htmlspecialchars($health_result['detail'] ?? '', ENT_QUOTES, 'UTF-8');
-    }
-    print '</td></tr>';
+    print '</tr>';
     print '</table>';
     print '</div>';
 
