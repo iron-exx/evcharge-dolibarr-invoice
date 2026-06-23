@@ -76,6 +76,56 @@ def load_config():
         return {}
 
 
+def apply_log_level_from_config(config: dict) -> None:
+    """Setzt Log-Level aus options.json (LOG-01).
+    logging.basicConfig() kann nach der ersten Handler-Registrierung nicht erneut aufgerufen
+    werden — daher getLogger().setLevel() auf dem Root-Logger verwenden.
+    """
+    log_level_str = config.get('log_level', 'INFO').upper()
+    numeric_level = getattr(logging, log_level_str, logging.INFO)
+    logging.getLogger().setLevel(numeric_level)
+    _LOGGER.info("Log-Level aus options.json gesetzt: %s", log_level_str)
+
+
+async def send_persistent_notification(
+    title: str,
+    message: str,
+    notification_id: str = "wallbox_upload_error"
+) -> None:
+    """Sendet persistent_notification via HA Supervisor REST API (ALT-01).
+    Schlägt graceful fehl wenn SUPERVISOR_TOKEN nicht gesetzt ist.
+    """
+    supervisor_token = os.getenv('SUPERVISOR_TOKEN', '')
+    if not supervisor_token:
+        _LOGGER.warning("SUPERVISOR_TOKEN nicht verfügbar — persistent_notification nicht gesendet")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {supervisor_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "title": title,
+        "message": message[:500],          # Max 500 Zeichen (Anti-Injection)
+        "notification_id": notification_id,
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://supervisor/core/api/services/persistent_notification/create",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status == 200:
+                    _LOGGER.info("persistent_notification gesendet: %s", title)
+                else:
+                    _LOGGER.warning("persistent_notification fehlgeschlagen: HTTP %s", resp.status)
+    except Exception as e:
+        _LOGGER.warning("persistent_notification Fehler: %s", e)
+
+
 class HomeAssistantWebsocket:
     """Verbindung zur Home Assistant Websocket API (D-02, D-10)"""
 
@@ -339,6 +389,7 @@ async def main():
 
     # Konfiguration laden (für Whitelist und API)
     current_config = load_config()
+    apply_log_level_from_config(current_config)   # LOG-01: apply log_level from options.json
 
     # API Client initialisieren (nur wenn konfiguriert, Task 4)
     # api_client ist globale Variable (handle_session_stop braucht Zugriff)
@@ -390,6 +441,12 @@ async def main():
 
                         if result["failed"] > 0:
                             _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen", result["failed"])
+                            error_summary = "; ".join(result.get("errors", []))
+                            await send_persistent_notification(
+                                title="Wallbox Upload-Fehler",
+                                message=f"{result['failed']} Session(s) konnten nicht übertragen werden: {error_summary}",
+                                notification_id="wallbox_upload_error",
+                            )
                             # Bei Fehlern: Verbindung neu testen
                             if not api_client.check_connection():
                                 _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
