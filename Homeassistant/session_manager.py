@@ -119,6 +119,28 @@ class SessionManager:
             CREATE INDEX IF NOT EXISTS idx_status ON sessions(status)
         ''')
 
+        # Dead-letter queue table (RET-01)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS dead_letter (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                rfid_hash TEXT NOT NULL,
+                wallbox_id TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                total_kwh REAL NOT NULL DEFAULT 0.0,
+                error_msg TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                last_retry_at TEXT,
+                UNIQUE(session_id)
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_dead_letter_status ON dead_letter(status)'
+        )
+
         conn.commit()
         conn.close()
         self._logger.info("SQLite Datenbank initialisiert mit WAL Mode: %s", self.db_path)
@@ -422,10 +444,12 @@ class SessionManager:
         cursor = conn.cursor()
 
         # Sessions finden: end_time IS NOT NULL und transmitted_at IS NULL
+        # Ausschluss: upload_status IN ('ok', 'dead_letter') — verhindert Doppel-Retry (T-08-05)
         cursor.execute('''
             SELECT id, rfid_hash, wallbox_id, start_time, end_time, total_kwh
             FROM sessions
             WHERE end_time IS NOT NULL AND transmitted_at IS NULL
+              AND (upload_status IS NULL OR upload_status NOT IN ('ok', 'dead_letter'))
         ''')
 
         rows = cursor.fetchall()
@@ -462,10 +486,19 @@ class SessionManager:
                 result["failed"] += 1
                 self._logger.error("Fehler bei Session %s: %s", session_id, error)
 
-                # upload_status='error' und Fehlermeldung in SQLite schreiben (MON-03)
+                # upload_status='dead_letter' und Fehlermeldung in SQLite schreiben (RET-01)
                 cursor.execute('''
                     UPDATE sessions SET upload_status = ?, upload_error = ? WHERE id = ?
-                ''', ('error', error[:1000] if error else 'Unknown error', session_id))
+                ''', ('dead_letter', error[:1000] if error else 'Unknown error', session_id))
+                cursor.execute('''
+                    INSERT OR IGNORE INTO dead_letter
+                    (session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh,
+                     error_msg, retry_count, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?)
+                ''', (session_id, row[1], row[2], row[3], row[4],
+                      row[5] or 0.0, error[:1000] if error else 'Unknown error',
+                      datetime.now().isoformat()))
+                self._logger.warning("Session %s in Dead-letter Queue geschrieben (RET-01)", session_id)
 
                 # Bei Fehler: Schleife abbrechen (keine weiteren Transmissions)
                 break
@@ -477,3 +510,116 @@ class SessionManager:
                          result["transmitted"], result["failed"])
 
         return result
+
+    def retry_dead_letter_sessions(self, api_client: Any) -> Dict[str, Any]:
+        """Retries all pending dead-letter entries. Called from periodic_transmission() (RET-03).
+        D-01: continues to next entry on failure — does NOT break."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh "
+            "FROM dead_letter WHERE status = 'pending'"
+        )
+        rows = cursor.fetchall()
+        result = {"retried": 0, "resolved": 0, "still_failed": 0, "errors": []}
+
+        for row in rows:
+            dl_id, session_id = row[0], row[1]
+            session_data = {
+                "rfid_hash": row[2], "wallbox_id": row[3],
+                "start_time": format_iso8601(row[4]), "end_time": format_iso8601(row[5]),
+                "kwh": row[6] or 0.0
+            }
+            try:
+                success, error = api_client.transmit_session(session_data)
+                result["retried"] += 1
+                if success:
+                    cursor.execute(
+                        "UPDATE dead_letter SET status='resolved', last_retry_at=? WHERE id=?",
+                        (datetime.now().isoformat(), dl_id)
+                    )
+                    cursor.execute(
+                        "UPDATE sessions SET transmitted_at=?, upload_status='ok', upload_error=NULL WHERE id=?",
+                        (datetime.now().isoformat(), session_id)
+                    )
+                    result["resolved"] += 1
+                    self._logger.info("Dead-letter Session %s erfolgreich wiederholt (RET-03)", session_id)
+                else:
+                    cursor.execute(
+                        "UPDATE dead_letter SET retry_count=retry_count+1, error_msg=?, last_retry_at=? WHERE id=?",
+                        (error[:1000] if error else 'Unknown error', datetime.now().isoformat(), dl_id)
+                    )
+                    result["still_failed"] += 1
+                    self._logger.warning("Dead-letter Session %s Retry fehlgeschlagen: %s", session_id, error)
+            except Exception as e:
+                self._logger.error("Dead-letter Retry Fehler fuer id=%s: %s", dl_id, e)
+                result["errors"].append(str(e))
+                continue  # D-01: do NOT break
+
+        conn.commit()
+        conn.close()
+        return result
+
+    def retry_single_dead_letter(self, api_client: Any, dead_letter_id: int) -> Dict[str, Any]:
+        """Retries a single dead-letter entry by id. Used by /session/retry HTTP endpoint (RET-02)."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh "
+            "FROM dead_letter WHERE id = ? AND status = 'pending'",
+            (dead_letter_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return {"success": False, "error": "dead_letter_id not found or not pending"}
+
+        dl_id, session_id = row[0], row[1]
+        session_data = {
+            "rfid_hash": row[2], "wallbox_id": row[3],
+            "start_time": format_iso8601(row[4]), "end_time": format_iso8601(row[5]),
+            "kwh": row[6] or 0.0
+        }
+        try:
+            success, error = api_client.transmit_session(session_data)
+            if success:
+                cursor.execute(
+                    "UPDATE dead_letter SET status='resolved', last_retry_at=? WHERE id=?",
+                    (datetime.now().isoformat(), dl_id)
+                )
+                cursor.execute(
+                    "UPDATE sessions SET transmitted_at=?, upload_status='ok', upload_error=NULL WHERE id=?",
+                    (datetime.now().isoformat(), session_id)
+                )
+                conn.commit()
+                conn.close()
+                self._logger.info("Dead-letter id=%s manuell aufgeloest (RET-02)", dead_letter_id)
+                return {"success": True, "error": ""}
+            else:
+                cursor.execute(
+                    "UPDATE dead_letter SET retry_count=retry_count+1, error_msg=?, last_retry_at=? WHERE id=?",
+                    (error[:1000] if error else 'Unknown error', datetime.now().isoformat(), dl_id)
+                )
+                conn.commit()
+                conn.close()
+                self._logger.warning("Dead-letter id=%s manueller Retry fehlgeschlagen: %s", dead_letter_id, error)
+                return {"success": False, "error": error or "Unknown error"}
+        except Exception as e:
+            conn.close()
+            self._logger.error("retry_single_dead_letter Fehler: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def get_pending_dead_letters(self) -> list:
+        """Returns pending dead-letter entries as list of dicts.
+        rfid_hash is NEVER included in the SELECT (SEC-01/02, D-04)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, session_id, wallbox_id, start_time, end_time, total_kwh, "
+            "error_msg, retry_count, status, created_at, last_retry_at "
+            "FROM dead_letter WHERE status = 'pending' ORDER BY created_at ASC"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]

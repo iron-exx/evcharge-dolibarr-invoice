@@ -365,11 +365,48 @@ async def handle_session_stop(request):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_session_retry(request):
+    """POST /session/retry - Admin-Triggered Retry eines Dead-letter-Eintrags (RET-02)"""
+    global session_manager, api_client
+    try:
+        data = await request.json()
+        dead_letter_id = int(data.get('dead_letter_id', 0))
+        if not dead_letter_id:
+            return web.json_response({"error": "dead_letter_id required"}, status=400)
+
+        if not api_client:
+            return web.json_response({"error": "API client not configured"}, status=503)
+
+        result = session_manager.retry_single_dead_letter(api_client, dead_letter_id)
+        return web.json_response(
+            {"status": "ok", "success": result.get("success", False),
+             "error": result.get("error", "")},
+            status=200
+        )
+    except (ValueError, TypeError):
+        return web.json_response({"error": "invalid dead_letter_id"}, status=400)
+    except Exception as e:
+        _LOGGER.error("session/retry Fehler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_dead_letter_list(request):
+    """GET /dead-letter/list - Pending Dead-letter-Eintraege als JSON (RET-02 display)"""
+    try:
+        entries = session_manager.get_pending_dead_letters()
+        return web.json_response(entries, status=200)
+    except Exception as e:
+        _LOGGER.error("dead-letter/list Fehler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def start_health_server(port: int = 8099) -> web.AppRunner:
     """Startet aiohttp HTTP-Server fuer /health und /session/stop Endpunkte (D-04, D-15)"""
     app = web.Application()
     app.router.add_get('/health', handle_health)
     app.router.add_post('/session/stop', handle_session_stop)
+    app.router.add_post('/session/retry', handle_session_retry)
+    app.router.add_get('/dead-letter/list', handle_dead_letter_list)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', port)
@@ -452,6 +489,14 @@ async def main():
                                 _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
                                 # api_client auf None setzen deaktiviert weitere Versuche
                                 # TODO: Reconnect-Logik in Zukunft
+
+                        # Dead-letter auto-retry (RET-03)
+                        retry_result = session_manager.retry_dead_letter_sessions(api_client)
+                        if retry_result["resolved"] > 0:
+                            _LOGGER.info("Dead-letter Retries erfolgreich: %s aufgeloest", retry_result["resolved"])
+                        if retry_result["still_failed"] > 0:
+                            _LOGGER.warning("Dead-letter Retries ausstehend: %s Eintraege fehlgeschlagen",
+                                            retry_result["still_failed"])
 
                         last_transmit = current_time
 
