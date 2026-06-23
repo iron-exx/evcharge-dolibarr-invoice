@@ -1,10 +1,11 @@
 ---
 phase: 8
 slug: retry-dead-letter
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-23
+reviewed_at: 2026-06-23
 ---
 
 # Phase 8 — UI Design Contract: Retry & Dead-letter
