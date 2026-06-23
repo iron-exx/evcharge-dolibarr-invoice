@@ -74,7 +74,11 @@ Plans:
   2. Admin kann im Dolibarr-Admin-Tab einen einzelnen Dead-letter-Eintrag manuell zum Retry markieren und absenden
   3. Beim nächsten regulären Übertragungszyklus werden pending Dead-letter-Einträge automatisch erneut versucht
   4. Nach erfolgreichem Retry wird der Dead-letter-Eintrag als erledigt markiert und erscheint nicht mehr in der Fehlerliste
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 08-01-PLAN.md — TDD test scaffold: test_dead_letter.py — 7 test classes RED phase (RET-01, RET-02, RET-03)
+- [ ] 08-02-PLAN.md — HA-Addon Python: dead_letter table + 4 SessionManager methods + /session/retry + /dead-letter/list endpoints + periodic retry
+- [ ] 08-03-PLAN.md — Dolibarr admin.php: 4th tab 'Fehlgeschlagen' + retry_dead_letter action handler + deadletter tab content
 **UI hint**: yes
 
 ## Progress
@@ -88,7 +92,7 @@ Plans:
 | 5. Hardening + Multi-Wallbox | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 6. Monitoring & Status | v1.1 | 5/5 | Complete ✓ | 2026-06-22 |
 | 7. Alerts & Logging | v1.1 | 3/3 | Complete ✓ | 2026-06-23 |
-| 8. Retry & Dead-letter | v1.1 | 0/? | Not started | - |
+| 8. Retry & Dead-letter | v1.1 | 0/3 | Not started | - |
 
 ---
 
@@ -96,4 +100,4 @@ Plans:
 *v1.0 requirements: 40/40 ✓*
 *v1.1 requirements: 11/11 ✓*
 *Total coverage: 51/51 ✓*
-*Last updated: 2026-06-23 — Phase 7 complete (3/3 plans, ALT-01/ALT-02/LOG-01/LOG-02/LOG-03 verified)*
+*Last updated: 2026-06-23 — Phase 8 planned (3 plans, RET-01/RET-02/RET-03)*
