@@ -386,7 +386,7 @@ async def test():
 
 asyncio.run(test())
 '''],
-            capture_output=True, text=True, cwd='/home/roto'
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         assert "Test PASS" in result.stdout, (
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
@@ -439,7 +439,7 @@ async def test():
 
 asyncio.run(test())
 '''],
-            capture_output=True, text=True, cwd='/home/roto'
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         assert "Test PASS" in result.stdout, (
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
