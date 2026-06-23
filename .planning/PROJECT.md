@@ -12,13 +12,13 @@ Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuell
 
 **Goal:** Das System beobachtbar und ausfallsicher machen — Fehler werden erkannt, gemeldet und können behoben werden.
 
-**Progress:** Phase 7 complete 2026-06-23 (2/3 phases) — Phase 8 next
+**Progress:** Phase 8 complete 2026-06-23 (3/3 phases) — milestone COMPLETE ✓
 
 **Target features:**
 - ✓ Health-Check / Status-Seite im Dolibarr-Modul (Admin-Tab) mit Übertragungsstatus und Fehlerhistorie — Phase 6 done
 - ✓ Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt — Phase 7 done
 - ✓ Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID) — Phase 7 done
-- Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin) — Phase 8
+- ✓ Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin) — Phase 8 done
 
 ## Previous State (v1.0 — shipped 2026-05-11)
 
