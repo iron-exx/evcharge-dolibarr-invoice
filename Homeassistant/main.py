@@ -397,6 +397,8 @@ async def handle_session_retry(request):
 
 async def handle_dead_letter_list(request):
     """GET /dead-letter/list - Pending Dead-letter-Eintraege als JSON (RET-02 display)"""
+    if not session_manager:  # WR-06: guard against uninitialized session_manager
+        return web.json_response({"error": "not initialized"}, status=503)
     try:
         entries = session_manager.get_pending_dead_letters()
         return web.json_response(entries, status=200)
