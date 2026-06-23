@@ -76,9 +76,17 @@ Plans:
   4. Nach erfolgreichem Retry wird der Dead-letter-Eintrag als erledigt markiert und erscheint nicht mehr in der Fehlerliste
 **Plans**: 3 plans
 Plans:
+**Wave 1:**
 - [ ] 08-01-PLAN.md — TDD test scaffold: test_dead_letter.py — 7 test classes RED phase (RET-01, RET-02, RET-03)
+
+**Wave 2 *(blocked on Wave 1 completion)* — parallel:**
 - [ ] 08-02-PLAN.md — HA-Addon Python: dead_letter table + 4 SessionManager methods + /session/retry + /dead-letter/list endpoints + periodic retry
 - [ ] 08-03-PLAN.md — Dolibarr admin.php: 4th tab 'Fehlgeschlagen' + retry_dead_letter action handler + deadletter tab content
+
+**Cross-cutting constraints:**
+- `rfid_hash` must never appear in any output, log, or HTTP response (SEC-01/02, D-04)
+- `checkToken()` + `newToken()` on every POST form (D-05)
+- `upload_status='dead_letter'` set in same transaction as dead_letter INSERT to prevent double-retry race (RESEARCH Pitfall 1)
 **UI hint**: yes
 
 ## Progress

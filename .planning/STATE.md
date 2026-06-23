@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Robustheit & Monitoring
 status: executing
 last_updated: "2026-06-23T00:00:00Z"
-last_activity: 2026-06-23 -- Phase 07 complete (3/3 plans, ALT-01/ALT-02/LOG-01/LOG-02/LOG-03 verified)
+last_activity: 2026-06-23 -- Phase 08 planned (3 plans, RET-01/RET-02/RET-03 covered)
 progress:
   total_phases: 3
   completed_phases: 2
@@ -24,10 +24,10 @@ progress:
 
 ## Current Position
 
-Phase: 07 (alerts-logging) — COMPLETE 2026-06-23
-Next: Phase 08 (retry-dead-letter) — not yet planned
-Status: Phase 07 complete (3/3 plans), ready to plan Phase 08
-Last activity: 2026-06-23 -- Phase 07 complete
+Phase: 08 (retry-dead-letter) — PLANNED 2026-06-23
+Next: Execute Phase 08 (retry-dead-letter)
+Status: Phase 08 planned (3/3 plans), ready to execute
+Last activity: 2026-06-23 -- Phase 08 planned (08-01, 08-02, 08-03)
 
 ```
 Progress: v1.1 [██████    ] 67% (2/3 phases)
@@ -71,7 +71,7 @@ Progress: v1.1 [██████    ] 67% (2/3 phases)
 
 - [x] Plan Phase 6: Monitoring & Status (MON-01, MON-02, MON-03) — complete 2026-06-22
 - [x] Plan Phase 7: Alerts & Logging (ALT-01, ALT-02, LOG-01, LOG-02, LOG-03) — complete 2026-06-23
-- [ ] Plan Phase 8: Retry & Dead-letter (RET-01, RET-02, RET-03)
+- [x] Plan Phase 8: Retry & Dead-letter (RET-01, RET-02, RET-03) — planned 2026-06-23
 
 ---
 
