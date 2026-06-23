@@ -457,6 +457,7 @@ async def main():
         _LOGGER.info("Keine API-Konfiguration - Addon läuft ohne API-Transmission")
 
     ha_ws = HomeAssistantWebsocket()
+    transmission_task = None  # WR-01: declared here so finally block can cancel it
 
     try:
         # Verbinden
@@ -511,6 +512,7 @@ async def main():
         if api_client:
             transmission_task = asyncio.create_task(periodic_transmission())
             _LOGGER.info("API-Transmission Hintergrund-Task gestartet")
+        # transmission_task is accessible to the finally block via the outer scope
 
         # HTTP-Server starten via start_health_server() (MON-01, D-04)
         health_runner = await start_health_server(port=8099)
@@ -526,6 +528,13 @@ async def main():
         # Crash + Supervisor restart (D-11)
         raise
     finally:
+        # WR-01: cancel transmission_task on shutdown to prevent pending task warnings
+        if transmission_task and not transmission_task.done():
+            transmission_task.cancel()
+            try:
+                await transmission_task
+            except asyncio.CancelledError:
+                pass
         if health_runner:
             await health_runner.cleanup()
         await ha_ws.disconnect()
