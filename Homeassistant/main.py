@@ -197,19 +197,24 @@ class HomeAssistantWebsocket:
                     await callback(entity_id, new_state)
 
     async def get_state(self, entity_id: str) -> Optional[Dict[str, Any]]:
-        """Holt den aktuellen State einer Entität"""
-        msg_id = 2
-        await self._ws.send_json({
-            'id': msg_id,
-            'type': 'get_states'
-        })
+        """Holt den aktuellen State einer Entität via REST API (CR-03).
 
-        msg = await self._ws.receive_json()
-        if msg.get('type') == 'result' and msg.get('success'):
-            states = msg.get('result', [])
-            for state in states:
-                if state.get('entity_id') == entity_id:
-                    return state
+        Uses the HA REST API instead of the websocket to avoid message-ID
+        collisions with the subscribe_entities receive loop.
+        """
+        url = f"http://{self.host}:{self.port}/api/states/{entity_id}"
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception as e:
+            _LOGGER.warning("get_state REST Fehler für %s: %s", entity_id, e)
         return None
 
     async def disconnect(self):
