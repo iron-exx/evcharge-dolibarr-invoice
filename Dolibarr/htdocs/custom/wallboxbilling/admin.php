@@ -80,6 +80,46 @@ if ($action == 'stop_session') {
     exit;
 }
 
+// Action: Fehlgeschlagene Übertragung erneut senden (RET-02, D-13, D-14, D-16)
+if ($action == 'retry_dead_letter') {
+    checkToken();
+    $dead_letter_id = GETPOST('dead_letter_id', 'int');
+    $ha_url = getDolGlobalString('WALLBOXBILLING_HA_URL', '');
+
+    if ($dead_letter_id > 0 && !empty($ha_url)) {
+        $ch = curl_init($ha_url . '/session/retry');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode(array('dead_letter_id' => (int)$dead_letter_id)));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+        $response = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curl_error = curl_error($ch);
+        curl_close($ch);
+
+        if ($curl_error || $http_code != 200) {
+            $err_detail = $curl_error ? $curl_error : 'HTTP '.$http_code;
+            setEventMessages($langs->trans('RetryDeadLetterFailed').': '.$err_detail, null, 'errors');
+            dol_syslog("Wallbox retry_dead_letter failed for dead_letter_id=".$dead_letter_id.": ".$err_detail, LOG_ERR);
+        } else {
+            $resp_data = json_decode($response, true);
+            if (!empty($resp_data['success'])) {
+                setEventMessages($langs->trans('RetryDeadLetterSuccess'), null, 'mesgs');
+            } else {
+                $api_err = !empty($resp_data['error']) ? $resp_data['error'] : 'unknown';
+                setEventMessages($langs->trans('RetryDeadLetterFailed').': '.$api_err, null, 'errors');
+            }
+        }
+    } else {
+        setEventMessages($langs->trans('WallboxHAUnreachable'), null, 'errors');
+    }
+    // PRG: Redirect zum Deadletter-Tab um Tabelle neu zu laden (D-16)
+    header('Location: '.$_SERVER['PHP_SELF'].'?tab=deadletter');
+    exit;
+}
+
 // --- HTML Output ---
 $page_title = $langs->trans('WallboxBillingSetup');
 llxHeader('', $page_title);
@@ -105,6 +145,11 @@ $h++;
 $head[$h][0] = $_SERVER['PHP_SELF'].'?tab=rfid';
 $head[$h][1] = $langs->trans('WallboxUserRFIDManagement');
 $head[$h][2] = 'rfid';
+$h++;
+
+$head[$h][0] = $_SERVER['PHP_SELF'].'?tab=deadletter';
+$head[$h][1] = $langs->trans('WallboxDeadLetter');
+$head[$h][2] = 'deadletter';
 $h++;
 
 // Tab-Leiste rendern — $tab ist bereits gesetzt (Default 'status', D-02)
@@ -336,6 +381,88 @@ if ($tab == 'status') {
     print '<tr class="oddeven"><td>wallboxbilling.admin</td><td>'.$langs->trans('ManageAllSessions').'</td></tr>';
     print '<tr class="oddeven"><td>wallboxbilling.billing</td><td>'.$langs->trans('CreateBilling').'</td></tr>';
     print '</table>';
+
+
+// =====================================================================
+// TAB: FEHLGESCHLAGEN / DEAD-LETTER (RET-02)
+// =====================================================================
+} elseif ($tab == 'deadletter') {
+
+    $ha_url = getDolGlobalString('WALLBOXBILLING_HA_URL', '');
+
+    print load_fiche_titre($langs->trans('WallboxDeadLetterQueue'), '', '');
+
+    if (empty($ha_url)) {
+        print '<div class="info">'.$langs->trans('WallboxHANotConfigured').'</div>';
+    } else {
+        // Fehlgeschlagene Einträge von HA-Addon abrufen (GET /dead-letter/list)
+        $dl_ch = curl_init($ha_url . '/dead-letter/list');
+        curl_setopt($dl_ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($dl_ch, CURLOPT_TIMEOUT, 4);
+        curl_setopt($dl_ch, CURLOPT_CONNECTTIMEOUT, 4);
+        $dl_response = curl_exec($dl_ch);
+        $dl_http_code = curl_getinfo($dl_ch, CURLINFO_HTTP_CODE);
+        $dl_curl_error = curl_error($dl_ch);
+        curl_close($dl_ch);
+
+        print '<div class="div-table-responsive">';
+        print '<table class="noborder centpercent">';
+        print '<tr class="liste_titre">';
+        print '<td>'.$langs->trans('WallboxDeadLetterCreated').'</td>';
+        print '<td>'.$langs->trans('WallboxID').'</td>';
+        print '<td>'.$langs->trans('kWh').'</td>';
+        print '<td>'.$langs->trans('Error').'</td>';
+        print '<td>'.$langs->trans('WallboxRetryCount').'</td>';
+        print '<td>'.$langs->trans('Action').'</td>';
+        print '</tr>';
+
+        if ($dl_curl_error || $dl_http_code != 200) {
+            // HA nicht erreichbar — Fehlerzeile, andere Tabs bleiben zugänglich
+            $unreachable_detail = $dl_curl_error ? htmlspecialchars($dl_curl_error, ENT_QUOTES, 'UTF-8') : 'HTTP '.$dl_http_code;
+            print '<tr class="oddeven">';
+            print '<td colspan="6"><span style="color:red">'.$langs->trans('WallboxHAUnreachable').': '.$unreachable_detail.'</span></td>';
+            print '</tr>';
+        } else {
+            $dl_entries = json_decode($dl_response, true);
+            if (empty($dl_entries)) {
+                // Leer-Zustand: keine ausstehenden Einträge
+                print '<tr class="oddeven">';
+                print '<td colspan="6">'.$langs->trans('WallboxNoDeadLetterEntries').'</td>';
+                print '</tr>';
+            } else {
+                foreach ($dl_entries as $entry) {
+                    print '<tr class="oddeven">';
+                    // Spalte 1: created_at
+                    print '<td>'.htmlspecialchars($entry['created_at'] ?? '', ENT_QUOTES, 'UTF-8').'</td>';
+                    // Spalte 2: wallbox_id
+                    print '<td>'.htmlspecialchars($entry['wallbox_id'] ?? '', ENT_QUOTES, 'UTF-8').'</td>';
+                    // Spalte 3: total_kwh formatiert
+                    print '<td>'.number_format((float)($entry['total_kwh'] ?? 0), 2).'</td>';
+                    // Spalte 4: error_msg — auf 80 Zeichen kürzen, HTML-escapen (T-08-04, XSS-Prävention)
+                    $err_raw = $entry['error_msg'] ?? '';
+                    $err_display = htmlspecialchars(mb_substr($err_raw, 0, 80), ENT_QUOTES, 'UTF-8');
+                    if (mb_strlen($err_raw) > 80) {
+                        $err_display .= '...';
+                    }
+                    print '<td style="color:red">'.$err_display.'</td>';
+                    // Spalte 5: retry_count
+                    print '<td>'.(int)($entry['retry_count'] ?? 0).'</td>';
+                    // Spalte 6: Wiederholen-Formular (ein Formular pro Zeile, CSRF-Token D-05/T-08-02)
+                    print '<td>';
+                    print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'?tab=deadletter" style="display:inline">';
+                    print '<input type="hidden" name="token" value="'.newToken().'">';
+                    print '<input type="hidden" name="action" value="retry_dead_letter">';
+                    print '<input type="hidden" name="dead_letter_id" value="'.((int)$entry['id']).'">';
+                    print '<input type="submit" class="button smallpaddingimp" value="'.htmlspecialchars($langs->trans('WallboxRetryAction'), ENT_QUOTES, 'UTF-8').'">';
+                    print '</form>';
+                    print '</td>';
+                    print '</tr>';
+                }
+            }
+        }
+        print '</table>';
+        print '</div>';
+    }
 }
 
 // Tab-Bereich schliessen
