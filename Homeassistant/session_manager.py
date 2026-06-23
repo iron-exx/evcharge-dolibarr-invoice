@@ -442,69 +442,68 @@ class SessionManager:
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        try:
+            # Sessions finden: end_time IS NOT NULL und transmitted_at IS NULL
+            # Ausschluss: upload_status IN ('ok', 'dead_letter') — verhindert Doppel-Retry (T-08-05)
+            cursor.execute('''
+                SELECT id, rfid_hash, wallbox_id, start_time, end_time, total_kwh
+                FROM sessions
+                WHERE end_time IS NOT NULL AND transmitted_at IS NULL
+                  AND (upload_status IS NULL OR upload_status NOT IN ('ok', 'dead_letter'))
+            ''')
 
-        # Sessions finden: end_time IS NOT NULL und transmitted_at IS NULL
-        # Ausschluss: upload_status IN ('ok', 'dead_letter') — verhindert Doppel-Retry (T-08-05)
-        cursor.execute('''
-            SELECT id, rfid_hash, wallbox_id, start_time, end_time, total_kwh
-            FROM sessions
-            WHERE end_time IS NOT NULL AND transmitted_at IS NULL
-              AND (upload_status IS NULL OR upload_status NOT IN ('ok', 'dead_letter'))
-        ''')
+            rows = cursor.fetchall()
 
-        rows = cursor.fetchall()
-
-        result = {
-            "transmitted": 0,
-            "failed": 0,
-            "errors": []
-        }
-
-        for row in rows:
-            session_id = row[0]
-            session_data = {
-                "rfid_hash": row[1],
-                "wallbox_id": row[2],
-                "start_time": format_iso8601(row[3]),
-                "end_time": format_iso8601(row[4]),
-                "kwh": row[5] if row[5] else 0.0
+            result = {
+                "transmitted": 0,
+                "failed": 0,
+                "errors": []
             }
 
-            # Session an Dolibarr übertragen
-            success, error = api_client.transmit_session(session_data)
+            for row in rows:
+                session_id = row[0]
+                session_data = {
+                    "rfid_hash": row[1],
+                    "wallbox_id": row[2],
+                    "start_time": format_iso8601(row[3]),
+                    "end_time": format_iso8601(row[4]),
+                    "kwh": row[5] if row[5] else 0.0
+                }
 
-            if success:
-                # transmitted_at, upload_status und upload_error setzen (MON-01, D-09)
-                cursor.execute('''
-                    UPDATE sessions SET transmitted_at = ?, upload_status = ?, upload_error = ? WHERE id = ?
-                ''', (datetime.now().isoformat(), 'ok', None, session_id))
-                result["transmitted"] += 1
-                self._logger.info("Session %s erfolgreich übertragen", session_id)
-            else:
-                error_msg = f"Session {session_id}: {error}"
-                result["errors"].append(error_msg)
-                result["failed"] += 1
-                self._logger.error("Fehler bei Session %s: %s", session_id, error)
+                # Session an Dolibarr übertragen
+                success, error = api_client.transmit_session(session_data)
 
-                # upload_status='dead_letter' und Fehlermeldung in SQLite schreiben (RET-01)
-                cursor.execute('''
-                    UPDATE sessions SET upload_status = ?, upload_error = ? WHERE id = ?
-                ''', ('dead_letter', error[:1000] if error else 'Unknown error', session_id))
-                cursor.execute('''
-                    INSERT OR IGNORE INTO dead_letter
-                    (session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh,
-                     error_msg, retry_count, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?)
-                ''', (session_id, row[1], row[2], row[3], row[4],
-                      row[5] or 0.0, error[:1000] if error else 'Unknown error',
-                      datetime.now().isoformat()))
-                self._logger.warning("Session %s in Dead-letter Queue geschrieben (RET-01)", session_id)
+                if success:
+                    # transmitted_at, upload_status und upload_error setzen (MON-01, D-09)
+                    cursor.execute('''
+                        UPDATE sessions SET transmitted_at = ?, upload_status = ?, upload_error = ? WHERE id = ?
+                    ''', (datetime.now().isoformat(), 'ok', None, session_id))
+                    result["transmitted"] += 1
+                    self._logger.info("Session %s erfolgreich übertragen", session_id)
+                else:
+                    error_msg = f"Session {session_id}: {error}"
+                    result["errors"].append(error_msg)
+                    result["failed"] += 1
+                    self._logger.error("Fehler bei Session %s: %s", session_id, error)
 
-                # Bei Fehler: Schleife abbrechen (keine weiteren Transmissions)
-                break
+                    # upload_status='dead_letter' und Fehlermeldung in SQLite schreiben (RET-01)
+                    cursor.execute('''
+                        UPDATE sessions SET upload_status = ?, upload_error = ? WHERE id = ?
+                    ''', ('dead_letter', error[:1000] if error else 'Unknown error', session_id))
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO dead_letter
+                        (session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh,
+                         error_msg, retry_count, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?)
+                    ''', (session_id, row[1], row[2], row[3], row[4],
+                          row[5] or 0.0, error[:1000] if error else 'Unknown error',
+                          datetime.now().isoformat()))
+                    self._logger.warning("Session %s in Dead-letter Queue geschrieben (RET-01)", session_id)
+                    continue  # WR-03: process remaining sessions (do not break)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         self._logger.info("API-Übertragung abgeschlossen: %s übertragen, %s fehlgeschlagen",
                          result["transmitted"], result["failed"])
@@ -516,48 +515,50 @@ class SessionManager:
         D-01: continues to next entry on failure — does NOT break."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh "
-            "FROM dead_letter WHERE status = 'pending'"
-        )
-        rows = cursor.fetchall()
-        result = {"retried": 0, "resolved": 0, "still_failed": 0, "errors": []}
+        try:
+            cursor.execute(
+                "SELECT id, session_id, rfid_hash, wallbox_id, start_time, end_time, total_kwh "
+                "FROM dead_letter WHERE status = 'pending'"
+            )
+            rows = cursor.fetchall()
+            result = {"retried": 0, "resolved": 0, "still_failed": 0, "errors": []}
 
-        for row in rows:
-            dl_id, session_id = row[0], row[1]
-            session_data = {
-                "rfid_hash": row[2], "wallbox_id": row[3],
-                "start_time": format_iso8601(row[4]), "end_time": format_iso8601(row[5]),
-                "kwh": row[6] or 0.0
-            }
-            try:
-                success, error = api_client.transmit_session(session_data)
-                result["retried"] += 1
-                if success:
-                    cursor.execute(
-                        "UPDATE dead_letter SET status='resolved', last_retry_at=? WHERE id=?",
-                        (datetime.now().isoformat(), dl_id)
-                    )
-                    cursor.execute(
-                        "UPDATE sessions SET transmitted_at=?, upload_status='ok', upload_error=NULL WHERE id=?",
-                        (datetime.now().isoformat(), session_id)
-                    )
-                    result["resolved"] += 1
-                    self._logger.info("Dead-letter Session %s erfolgreich wiederholt (RET-03)", session_id)
-                else:
-                    cursor.execute(
-                        "UPDATE dead_letter SET retry_count=retry_count+1, error_msg=?, last_retry_at=? WHERE id=?",
-                        (error[:1000] if error else 'Unknown error', datetime.now().isoformat(), dl_id)
-                    )
-                    result["still_failed"] += 1
-                    self._logger.warning("Dead-letter Session %s Retry fehlgeschlagen: %s", session_id, error)
-            except Exception as e:
-                self._logger.error("Dead-letter Retry Fehler fuer id=%s: %s", dl_id, e)
-                result["errors"].append(str(e))
-                continue  # D-01: do NOT break
+            for row in rows:
+                dl_id, session_id = row[0], row[1]
+                session_data = {
+                    "rfid_hash": row[2], "wallbox_id": row[3],
+                    "start_time": format_iso8601(row[4]), "end_time": format_iso8601(row[5]),
+                    "kwh": row[6] or 0.0
+                }
+                try:
+                    success, error = api_client.transmit_session(session_data)
+                    result["retried"] += 1
+                    if success:
+                        cursor.execute(
+                            "UPDATE dead_letter SET status='resolved', last_retry_at=? WHERE id=?",
+                            (datetime.now().isoformat(), dl_id)
+                        )
+                        cursor.execute(
+                            "UPDATE sessions SET transmitted_at=?, upload_status='ok', upload_error=NULL WHERE id=?",
+                            (datetime.now().isoformat(), session_id)
+                        )
+                        result["resolved"] += 1
+                        self._logger.info("Dead-letter Session %s erfolgreich wiederholt (RET-03)", session_id)
+                    else:
+                        cursor.execute(
+                            "UPDATE dead_letter SET retry_count=retry_count+1, error_msg=?, last_retry_at=? WHERE id=?",
+                            (error[:1000] if error else 'Unknown error', datetime.now().isoformat(), dl_id)
+                        )
+                        result["still_failed"] += 1
+                        self._logger.warning("Dead-letter Session %s Retry fehlgeschlagen: %s", session_id, error)
+                except Exception as e:
+                    self._logger.error("Dead-letter Retry Fehler fuer id=%s: %s", dl_id, e)
+                    result["errors"].append(str(e))
+                    continue  # D-01: do NOT break
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
         return result
 
     def retry_single_dead_letter(self, api_client: Any, dead_letter_id: int) -> Dict[str, Any]:
