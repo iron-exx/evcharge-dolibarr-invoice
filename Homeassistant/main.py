@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import sys
-import yaml
 from typing import Dict, Any, Optional
 
 # Hash-Utility importieren
