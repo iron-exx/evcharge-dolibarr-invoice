@@ -33,17 +33,33 @@ if ($action == 'update') {
 // Action: RFID speichern
 if ($action == 'update_rfid') {
     checkToken();
-    $user_id = GETPOST('user_id', 'int');
-    $rfid_hex = GETPOST('rfid_hex', 'alpha');
-    $price_kwh = GETPOST('price_kwh', 'alpha');
-    $cost_center = GETPOST('cost_center', 'alpha');
+    // Detect which per-user save button was clicked (form uses name="save_{user_id}")
+    $user_id = 0;
+    foreach ($_POST as $key => $val) {
+        if (preg_match('/^save_(\d+)$/', $key, $m)) {
+            $user_id = (int)$m[1];
+            break;
+        }
+    }
+    $rfid_hex = GETPOST('rfid_hex_'.$user_id, 'alpha');
+    $price_kwh = GETPOST('price_kwh_'.$user_id, 'alpha');
+    $cost_center = GETPOST('cost_center_'.$user_id, 'alpha');
 
-    if ($user_id > 0) {
-        $rfid_hash = '';
-        if (!empty($rfid_hex)) {
-            $rfid_hash = hash('sha256', $rfid_hex);
-            dol_syslog("Wallbox: Saving RFID hash for user_id=".$user_id." hash=".substr($rfid_hash, 0, 16)."...", LOG_INFO);
+    if ($user_id > 0 && !empty($rfid_hex)) {
+        $rfid_hash = hash('sha256', $rfid_hex);
+        dol_syslog("Wallbox: Saving RFID hash for user_id=".$user_id." hash=".substr($rfid_hash, 0, 16)."...", LOG_INFO);
+        // Persist or update the RFID mapping in llx_wallbox_rfid (CR-02)
+        $sql = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_rfid (fk_user, rfid_hash, price_kwh, cost_center)";
+        $sql .= " VALUES (".(int)$user_id.", '".$db->escape($rfid_hash)."',";
+        $sql .= " '".$db->escape($price_kwh)."', '".$db->escape($cost_center)."')";
+        $sql .= " ON DUPLICATE KEY UPDATE rfid_hash=VALUES(rfid_hash),";
+        $sql .= "  price_kwh=VALUES(price_kwh), cost_center=VALUES(cost_center)";
+        $resql = $db->query($sql);
+        if ($resql) {
             setEventMessages($langs->trans('RFIDHashSaved'), null, 'mesgs');
+        } else {
+            setEventMessages($langs->trans('DatabaseError').': '.$db->lasterror(), null, 'errors');
+            dol_syslog("Wallbox update_rfid SQL error: ".$db->lasterror(), LOG_ERR);
         }
     }
 }
