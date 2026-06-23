@@ -24,6 +24,8 @@ if (empty($tab)) $tab = 'status';  // D-02: Default = Status-Tab
 if ($action == 'update') {
     $new_price = GETPOST('WALLBOXBILLING_DEFAULT_PRICE', 'alpha');
     dolibarr_set_const($db, 'WALLBOXBILLING_DEFAULT_PRICE', $new_price, 'chaine', 0, '', $conf->entity);
+    $admin_email = GETPOST('WALLBOXBILLING_ADMIN_EMAIL', 'email');
+    dolibarr_set_const($db, 'WALLBOXBILLING_ADMIN_EMAIL', $admin_email, 'chaine', 0, '', $conf->entity);
     setEventMessages($langs->trans('Saved'), null, 'mesgs');
 }
 
@@ -260,6 +262,9 @@ if ($tab == 'status') {
 
     print '<tr><td>'.$langs->trans('DefaultPricePerKwh').'</td>';
     print '<td><input type="text" name="WALLBOXBILLING_DEFAULT_PRICE" value="'.getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE').'"></td></tr>';
+
+    print '<tr><td>Admin-E-Mail für Upload-Alerts</td>';
+    print '<td><input type="email" name="WALLBOXBILLING_ADMIN_EMAIL" value="'.getDolGlobalString('WALLBOXBILLING_ADMIN_EMAIL').'" placeholder="admin@example.com"></td></tr>';
 
     print '</table>';
     print '<div class="center"><input type="submit" class="button" value="'.$langs->trans('Save').'"></div>';
