@@ -8,7 +8,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-5 (shipped 2026-05-11)
-- [ ] **v1.1 Robustheit & Monitoring** — Phases 6-8 (1/3 complete)
+- [x] **v1.1 Robustheit & Monitoring** — Phases 6-8 — completed 2026-06-23
 
 ## Phases
 
@@ -27,7 +27,7 @@
 
 - [x] **Phase 6: Monitoring & Status** — Dolibarr Admin-Tab zeigt Systemstatus und Session-Historie — completed 2026-06-22
 - [x] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert — completed 2026-06-23
-- [ ] **Phase 8: Retry & Dead-letter** — Fehlgeschlagene Uploads werden gespeichert und können manuell neu gestartet werden
+- [x] **Phase 8: Retry & Dead-letter** — Fehlgeschlagene Uploads werden gespeichert und können manuell neu gestartet werden — completed 2026-06-23
 
 ## Phase Details
 
@@ -77,11 +77,11 @@ Plans:
 **Plans**: 3 plans
 Plans:
 **Wave 1:**
-- [ ] 08-01-PLAN.md — TDD test scaffold: test_dead_letter.py — 7 test classes RED phase (RET-01, RET-02, RET-03)
+- [x] 08-01-PLAN.md — TDD test scaffold: test_dead_letter.py — 7 test classes RED phase (RET-01, RET-02, RET-03)
 
-**Wave 2 *(blocked on Wave 1 completion)* — parallel:**
-- [ ] 08-02-PLAN.md — HA-Addon Python: dead_letter table + 4 SessionManager methods + /session/retry + /dead-letter/list endpoints + periodic retry
-- [ ] 08-03-PLAN.md — Dolibarr admin.php: 4th tab 'Fehlgeschlagen' + retry_dead_letter action handler + deadletter tab content
+**Wave 2 *(parallel)*:**
+- [x] 08-02-PLAN.md — HA-Addon Python: dead_letter table + 4 SessionManager methods + /session/retry + /dead-letter/list endpoints + periodic retry
+- [x] 08-03-PLAN.md — Dolibarr admin.php: 4th tab 'Fehlgeschlagen' + retry_dead_letter action handler + deadletter tab content
 
 **Cross-cutting constraints:**
 - `rfid_hash` must never appear in any output, log, or HTTP response (SEC-01/02, D-04)
@@ -100,7 +100,7 @@ Plans:
 | 5. Hardening + Multi-Wallbox | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 6. Monitoring & Status | v1.1 | 5/5 | Complete ✓ | 2026-06-22 |
 | 7. Alerts & Logging | v1.1 | 3/3 | Complete ✓ | 2026-06-23 |
-| 8. Retry & Dead-letter | v1.1 | 0/3 | Not started | - |
+| 8. Retry & Dead-letter | v1.1 | 3/3 | Complete ✓ | 2026-06-23 |
 
 ---
 
@@ -108,4 +108,4 @@ Plans:
 *v1.0 requirements: 40/40 ✓*
 *v1.1 requirements: 11/11 ✓*
 *Total coverage: 51/51 ✓*
-*Last updated: 2026-06-23 — Phase 8 planned (3 plans, RET-01/RET-02/RET-03)*
+*Last updated: 2026-06-23 — Phase 8 complete, v1.1 milestone complete*
