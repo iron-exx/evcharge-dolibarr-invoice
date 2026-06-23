@@ -33,11 +33,6 @@ logging.basicConfig(
 )
 _LOGGER = logging.getLogger(__name__)
 
-# Status-Konstanten (D-16)
-CHARGING = "Charging"
-IDLE = "Idle"
-STOPPED = "Stopped"
-
 # Alfen Sensoren (D-09)
 SENSOR_RFID = "sensor.alfen_eve_tag_socket_1"
 SENSOR_ENERGY = "sensor.alfen_energy_total"
