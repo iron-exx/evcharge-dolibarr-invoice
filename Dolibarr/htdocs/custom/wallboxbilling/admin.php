@@ -324,10 +324,14 @@ if ($tab == 'status') {
     print '</tr>';
 
     print '<tr><td>'.$langs->trans('DefaultPricePerKwh').'</td>';
-    print '<td><input type="text" name="WALLBOXBILLING_DEFAULT_PRICE" value="'.getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE').'"></td></tr>';
+    print '<td><input type="text" name="WALLBOXBILLING_DEFAULT_PRICE" value="'
+        .htmlspecialchars(getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE'), ENT_QUOTES, 'UTF-8')
+        .'"></td></tr>';
 
     print '<tr><td>Admin-E-Mail für Upload-Alerts</td>';
-    print '<td><input type="email" name="WALLBOXBILLING_ADMIN_EMAIL" value="'.getDolGlobalString('WALLBOXBILLING_ADMIN_EMAIL').'" placeholder="admin@example.com"></td></tr>';
+    print '<td><input type="email" name="WALLBOXBILLING_ADMIN_EMAIL" value="'
+        .htmlspecialchars(getDolGlobalString('WALLBOXBILLING_ADMIN_EMAIL'), ENT_QUOTES, 'UTF-8')
+        .'" placeholder="admin@example.com"></td></tr>';
 
     print '</table>';
     print '<div class="center"><input type="submit" class="button" value="'.$langs->trans('Save').'"></div>';
