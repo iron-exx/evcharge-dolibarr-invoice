@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
+milestone: v1.1
 milestone_name: Robustheit & Monitoring
 status: executing
-last_updated: "2026-06-22T13:00:00Z"
-last_activity: 2026-06-22 -- Phase 07 planned (3 plans), ready to execute
+last_updated: "2026-06-23T00:00:00Z"
+last_activity: 2026-06-23 -- Phase 07 complete (3/3 plans, ALT-01/ALT-02/LOG-01/LOG-02/LOG-03 verified)
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 33
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State: Wallbox-Dolibarr Integration
@@ -18,19 +18,19 @@ progress:
 ## Project Reference
 
 **Core Value:** Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuellen Aufwand
-**Current Focus:** Phase 07 — alerts-logging
+**Current Focus:** Phase 08 — retry-dead-letter (next)
 **Created:** 2026-05-04
-**Last Updated:** 2026-06-16
+**Last Updated:** 2026-06-23
 
 ## Current Position
 
-Phase: 07 (alerts-logging) — PLANNED, READY TO EXECUTE
-Previous: Phase 06 (monitoring-status) — COMPLETE 2026-06-22
-Status: Phase 07 planned (3 plans, 2 waves), ready to execute
-Last activity: 2026-06-22 -- Phase 07 planned
+Phase: 07 (alerts-logging) — COMPLETE 2026-06-23
+Next: Phase 08 (retry-dead-letter) — not yet planned
+Status: Phase 07 complete (3/3 plans), ready to plan Phase 08
+Last activity: 2026-06-23 -- Phase 07 complete
 
 ```
-Progress: v1.1 [███       ] 33% (1/3 phases)
+Progress: v1.1 [██████    ] 67% (2/3 phases)
 ```
 
 ## Performance Metrics
@@ -38,8 +38,8 @@ Progress: v1.1 [███       ] 33% (1/3 phases)
 | Metric | v1.0 | v1.1 |
 |--------|------|------|
 | Phases | 5 | 3 planned |
-| Plans | 10 | TBD |
-| Requirements | 40/40 | 0/11 |
+| Plans | 10 | 8 complete |
+| Requirements | 40/40 | 11/11 |
 | Status | Shipped | In progress |
 
 ## Accumulated Context
@@ -69,10 +69,10 @@ Progress: v1.1 [███       ] 33% (1/3 phases)
 
 ### v1.1 Todos
 
-- [ ] Plan Phase 6: Monitoring & Status (MON-01, MON-02, MON-03)
-- [ ] Plan Phase 7: Alerts & Logging (ALT-01, ALT-02, LOG-01, LOG-02, LOG-03)
+- [x] Plan Phase 6: Monitoring & Status (MON-01, MON-02, MON-03) — complete 2026-06-22
+- [x] Plan Phase 7: Alerts & Logging (ALT-01, ALT-02, LOG-01, LOG-02, LOG-03) — complete 2026-06-23
 - [ ] Plan Phase 8: Retry & Dead-letter (RET-01, RET-02, RET-03)
 
 ---
 
-*State updated: 2026-06-16 — v1.1 roadmap defined, Phase 6 next*
+*State updated: 2026-06-23 — Phase 7 complete, Phase 8 next*

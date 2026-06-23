@@ -26,7 +26,7 @@
 **v1.1 Robustheit & Monitoring (Phases 6-8):**
 
 - [x] **Phase 6: Monitoring & Status** — Dolibarr Admin-Tab zeigt Systemstatus und Session-Historie — completed 2026-06-22
-- [ ] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert *(planned 2026-06-22 — 3 plans)*
+- [x] **Phase 7: Alerts & Logging** — System meldet Fehler aktiv und protokolliert strukturiert — completed 2026-06-23
 - [ ] **Phase 8: Retry & Dead-letter** — Fehlgeschlagene Uploads werden gespeichert und können manuell neu gestartet werden
 
 ## Phase Details
@@ -61,9 +61,9 @@ Plans:
   5. Dolibarr loggt Upload-Ereignisse (Erfolg und Fehler) strukturiert ins Dolibarr-Logfile
 **Plans**: 3 plans
 Plans:
-- [ ] 07-01-PLAN.md — HA-Addon main.py: apply_log_level_from_config() (LOG-01) + send_persistent_notification() (ALT-01)
-- [ ] 07-02-PLAN.md — Test scaffold: test_logging.py (LOG-01) + test_log_scrubbing.py (LOG-02) + test_alerts.py (ALT-01)
-- [ ] 07-03-PLAN.md — Dolibarr: dol_syslog in postSession() (LOG-03) + CMailFile email alert + admin.php WALLBOXBILLING_ADMIN_EMAIL field (ALT-02)
+- [x] 07-01-PLAN.md — HA-Addon main.py: apply_log_level_from_config() (LOG-01) + send_persistent_notification() (ALT-01)
+- [x] 07-02-PLAN.md — Test scaffold: test_logging.py (LOG-01) + test_log_scrubbing.py (LOG-02) + test_alerts.py (ALT-01)
+- [x] 07-03-PLAN.md — Dolibarr: dol_syslog in postSession() (LOG-03) + CMailFile email alert + admin.php WALLBOXBILLING_ADMIN_EMAIL field (ALT-02)
 
 ### Phase 8: Retry & Dead-letter
 **Goal**: Fehlgeschlagene Session-Uploads gehen nicht verloren und können vom Admin manuell oder automatisch wiederholt werden
@@ -87,7 +87,7 @@ Plans:
 | 4. Billing + Invoicing + Export | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 5. Hardening + Multi-Wallbox | v1.0 | 2/2 | Complete ✓ | 2026-05-08 |
 | 6. Monitoring & Status | v1.1 | 5/5 | Complete ✓ | 2026-06-22 |
-| 7. Alerts & Logging | v1.1 | 0/3 | Not started | - |
+| 7. Alerts & Logging | v1.1 | 3/3 | Complete ✓ | 2026-06-23 |
 | 8. Retry & Dead-letter | v1.1 | 0/? | Not started | - |
 
 ---
@@ -96,4 +96,4 @@ Plans:
 *v1.0 requirements: 40/40 ✓*
 *v1.1 requirements: 11/11 ✓*
 *Total coverage: 51/51 ✓*
-*Last updated: 2026-06-22 — Phase 7 planned (3 plans, Wave 1 all parallel)*
+*Last updated: 2026-06-23 — Phase 7 complete (3/3 plans, ALT-01/ALT-02/LOG-01/LOG-02/LOG-03 verified)*

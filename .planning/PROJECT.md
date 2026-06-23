@@ -12,12 +12,12 @@ Automatisierte, RFID-basierte Abrechnung von Wallbox-Ladevorgängen ohne manuell
 
 **Goal:** Das System beobachtbar und ausfallsicher machen — Fehler werden erkannt, gemeldet und können behoben werden.
 
-**Progress:** Phase 6 complete 2026-06-22 (1/3 phases) — Phase 7 next
+**Progress:** Phase 7 complete 2026-06-23 (2/3 phases) — Phase 8 next
 
 **Target features:**
 - ✓ Health-Check / Status-Seite im Dolibarr-Modul (Admin-Tab) mit Übertragungsstatus und Fehlerhistorie — Phase 6 done
-- Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt — Phase 7
-- Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID) — Phase 7
+- ✓ Alert bei Fehler: HA persistent_notification + Dolibarr E-Mail wenn Upload fehlschlägt — Phase 7 done
+- ✓ Strukturiertes Logging mit konfigurierbarem Log-Level (kein Klartext von RFID) — Phase 7 done
 - Retry / Dead-letter Queue für fehlgeschlagene Session-Uploads (manueller Retry im Admin) — Phase 8
 
 ## Previous State (v1.0 — shipped 2026-05-11)
@@ -53,9 +53,15 @@ Code: ~4.100 LOC (Python + PHP + Shell + Config)
 - ✓ **MON-02**: Session-Tabelle im Admin-Tab (Datum, Wallbox-ID, kWh, upload_status) — inklusive Stop-Button
 - ✓ **MON-03**: Fehlgeschlagene Übertragungen mit Fehlermeldung im Admin-Tab sichtbar (upload_error Spalte)
 
-### Active (v1.1 — Phase 7 next)
-- [ ] **LOG-01**: Strukturiertes Logging mit konfigurierbarem Log-Level
-- [ ] **LOG-02**: Keine sensiblen Daten (RFID, Tokens) in Logs
+### Validated (v1.1 — Phase 7 complete 2026-06-23)
+
+- ✓ **ALT-01**: HA persistent_notification bei Upload-Fehler — send_persistent_notification() in main.py
+- ✓ **ALT-02**: Dolibarr E-Mail an Admin bei DB-Fehler — CMailFile in api_wallboxbilling.class.php + WALLBOXBILLING_ADMIN_EMAIL admin config
+- ✓ **LOG-01**: Konfigurierbares Log-Level per options.json — apply_log_level_from_config() in main.py
+- ✓ **LOG-02**: Keine sensiblen Daten in Logs — statische Analyse + caplog Tests bestätigt
+- ✓ **LOG-03**: Dolibarr strukturiertes Logging (dol_syslog LOG_INFO/LOG_ERR) in postSession()
+
+### Active (v1.1 — Phase 8 next)
 - [ ] **RET-01**: Dead-letter Queue für fehlgeschlagene Session-Uploads
 - [ ] **RET-02**: Manueller Retry-Trigger im Dolibarr-Admin
 
