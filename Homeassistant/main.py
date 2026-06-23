@@ -469,6 +469,7 @@ async def main():
         # Periodic API Transmission als Hintergrund-Task (Task 4 - Fix: subscribe_entities blockiert)
         async def periodic_transmission():
             """Periodische API-Übertragung als Hintergrund-Task"""
+            global api_client  # WR-02: need global to set api_client = None on connection loss
             import time
             last_transmit = 0
             transmit_interval = api_config.get("transmit_interval", 300)
@@ -490,11 +491,10 @@ async def main():
                                 message=f"{result['failed']} Session(s) konnten nicht übertragen werden: {error_summary}",
                                 notification_id="wallbox_upload_error",
                             )
-                            # Bei Fehlern: Verbindung neu testen
+                            # Bei Fehlern: Verbindung neu testen, bei Verlust deaktivieren (WR-02)
                             if not api_client.check_connection():
                                 _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
-                                # api_client auf None setzen deaktiviert weitere Versuche
-                                # TODO: Reconnect-Logik in Zukunft
+                                api_client = None  # WR-02: disables further transmission attempts
 
                         # Dead-letter auto-retry (RET-03)
                         retry_result = session_manager.retry_dead_letter_sessions(api_client)
