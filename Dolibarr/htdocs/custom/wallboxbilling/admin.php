@@ -22,6 +22,7 @@ if (empty($tab)) $tab = 'status';  // D-02: Default = Status-Tab
 
 // Action: Konfiguration speichern
 if ($action == 'update') {
+    checkToken();
     $new_price = GETPOST('WALLBOXBILLING_DEFAULT_PRICE', 'alpha');
     dolibarr_set_const($db, 'WALLBOXBILLING_DEFAULT_PRICE', $new_price, 'chaine', 0, '', $conf->entity);
     $admin_email = GETPOST('WALLBOXBILLING_ADMIN_EMAIL', 'email');
@@ -31,6 +32,7 @@ if ($action == 'update') {
 
 // Action: RFID speichern
 if ($action == 'update_rfid') {
+    checkToken();
     $user_id = GETPOST('user_id', 'int');
     $rfid_hex = GETPOST('rfid_hex', 'alpha');
     $price_kwh = GETPOST('price_kwh', 'alpha');
