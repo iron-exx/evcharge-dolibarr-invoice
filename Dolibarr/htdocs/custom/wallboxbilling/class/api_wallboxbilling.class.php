@@ -11,6 +11,7 @@
  */
 
 require_once DOL_DOCUMENT_ROOT.'/api/class/api.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/class/CMailFile.class.php';
 
 /**
  * WallboxbillingApi - REST API für Session-Upload vom HA-Addon
@@ -175,10 +176,34 @@ class WallboxbillingApi extends DolibarrApi
 
         $resql = $this->db->query($sql_insert);
         if (!$resql) {
+            // LOG-03: Fehler strukturiert loggen
+            dol_syslog("WallboxBilling: Session upload FAILED - wallbox=".$wallbox_id." error=".$this->db->lasterror(), LOG_ERR);
+
+            // ALT-02: Admin-E-Mail bei DB-Fehler (nur wenn konfiguriert)
+            $admin_email = getDolGlobalString('WALLBOXBILLING_ADMIN_EMAIL');
+            if (!empty($admin_email)) {
+                $from = getDolGlobalString('MAIN_MAIL_EMAIL_FROM');
+                if (empty($from)) {
+                    $from = getDolGlobalString('MAIN_INFO_SOCIETE_MAIL');
+                }
+                $subject = "Wallbox Upload-Fehler: Session konnte nicht gespeichert werden";
+                $message_body = "Session-Upload fehlgeschlagen."
+                    ."\n\nFehler: ".$this->db->lasterror()
+                    ."\n\nWallbox: ".$wallbox_id
+                    ."\n\nZeitpunkt: ".dol_print_date(dol_now(), 'dayhour');
+                $mail = new CMailFile($subject, $admin_email, $from, $message_body, array(), array(), array(), '', '', 0, 0);
+                if (!$mail->sendfile()) {
+                    dol_syslog("WallboxBilling: Admin-E-Mail konnte nicht gesendet werden: ".$mail->error, LOG_WARNING);
+                }
+            }
+
             throw new RestException(500, 'DB Error: '.$this->db->lasterror());
         }
 
         $session_id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'wallbox_sessions');
+
+        // LOG-03: Erfolg loggen
+        dol_syslog("WallboxBilling: Session upload OK - session_id=".$session_id." wallbox=".$wallbox_id." kwh=".$kwh, LOG_INFO);
 
         return array(
             'success' => true,
