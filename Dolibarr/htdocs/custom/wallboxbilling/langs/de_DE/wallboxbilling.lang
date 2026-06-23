@@ -31,3 +31,27 @@ RetryDeadLetterSuccess=Übertragung erfolgreich wiederholt.
 RetryDeadLetterFailed=Wiederholen fehlgeschlagen
 WallboxStatusPending=ausstehend
 WallboxStatusResolved=erledigt
+
+# Phase 8: Fehlende Modul-Keys (IN-03)
+Action=Aktion
+APIStatus=API-Status
+CostCenter=Kostenstelle
+DatabaseError=Datenbankfehler
+NoSessionsFound=Keine Sessions gefunden
+NotConfigured=Nicht konfiguriert
+PricePerKWh=Preis pro kWh
+Reachable=Erreichbar
+RFIDHash=RFID-Hash
+RFIDHashSaved=RFID-Hash gespeichert
+RFIDHex=RFID-Hex
+Saved=Gespeichert
+StopSession=Session beenden
+StopSessionFailed=Session-Beendigung fehlgeschlagen
+StopSessionInvalidOrNoURL=Ungültige Session-ID oder keine HA-URL konfiguriert
+StopSessionSuccess=Session erfolgreich beendet
+Unknown=Unbekannt
+Unreachable=Nicht erreichbar
+UploadStatus=Übertragungsstatus
+WallboxID=Wallbox-ID
+WallboxStatus=Wallbox-Status
+WallboxUserRFIDManagement=RFID-Verwaltung
