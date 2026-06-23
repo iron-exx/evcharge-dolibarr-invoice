@@ -17,3 +17,17 @@ SessionsWillBeDisplayedHere=Hier werden die Ladevorgänge angezeigt.
 UserRFIDLinkWillBeHere=Hier können Benutzer mit RFID-Karten verknüpft werden.
 BillingPreviewWillBeHere=Hier wird die Abrechnungsvorschau angezeigt.
 Save=Speichern
+
+# Phase 8: Retry / Dead-letter (RET-01, RET-02)
+WallboxDeadLetter=Fehlgeschlagen
+WallboxDeadLetterQueue=Fehlgeschlagene Übertragungen
+WallboxDeadLetterCreated=Erstellt
+WallboxRetryCount=Versuche
+WallboxRetryAction=Wiederholen
+WallboxNoDeadLetterEntries=Keine fehlgeschlagenen Übertragungen vorhanden.
+WallboxHAUnreachable=HA-Addon nicht erreichbar
+WallboxHANotConfigured=HA-Addon nicht konfiguriert (WALLBOXBILLING_HA_URL)
+RetryDeadLetterSuccess=Übertragung erfolgreich wiederholt.
+RetryDeadLetterFailed=Wiederholen fehlgeschlagen
+WallboxStatusPending=ausstehend
+WallboxStatusResolved=erledigt
