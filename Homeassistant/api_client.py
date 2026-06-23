@@ -169,3 +169,70 @@ class WallboxApiClient:
         except Exception as e:
             _LOGGER.warning("Dolibarr API Verbindung fehlgeschlagen: %s", e)
             return False
+
+    def get_wallbox_status(self, wallbox_id: str = "alfen_eve") -> Dict[str, Any]:
+        """
+        Ruft den Status einer spezifischen Wallbox ab (EXT-01, PER-03)
+
+        Wird für Session Recovery beim Neustart verwendet.
+
+        Args:
+            wallbox_id: ID der abzufragenden Wallbox
+
+        Returns:
+            Dict mit status, energy, etc.
+        """
+        url = f"{self.base_url}/custom/wallboxbilling/api/status.php"
+
+        try:
+            response = self.session.get(
+                url,
+                params={"wallbox_id": wallbox_id},
+                headers=self.headers,
+                timeout=self.timeout
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                _LOGGER.info("Wallbox %s Status: %s", wallbox_id, data.get('status', 'Unknown'))
+                return data
+            else:
+                _LOGGER.warning("Wallbox Status abfrage fehlgeschlagen: HTTP %s", response.status_code)
+                return {'status': 'Unknown', 'energy': 0}
+
+        except Exception as e:
+            _LOGGER.warning("Fehler beim Abfragen des Wallbox-Status: %s", e)
+            return {'status': 'Unknown', 'energy': 0}
+
+    def get_wallbox_sessions(self, wallbox_id: str, limit: int = 100) -> list:
+        """
+        Holt Sessions für eine spezifische Wallbox (EXT-01)
+
+        Args:
+            wallbox_id: ID der Wallbox
+            limit: Maximale Anzahl Sessions
+
+        Returns:
+            Liste von Session-Dicts
+        """
+        url = f"{self.base_url}/custom/wallboxbilling/api/sessions.php"
+
+        try:
+            response = self.session.get(
+                url,
+                params={"wallbox_id": wallbox_id, "limit": limit},
+                headers=self.headers,
+                timeout=self.timeout
+            )
+
+            if response.status_code == 200:
+                sessions = response.json()
+                _LOGGER.info("Gefundene Sessions für Wallbox %s: %d", wallbox_id, len(sessions))
+                return sessions
+            else:
+                _LOGGER.warning("Sessions abfrage fehlgeschlagen: HTTP %s", response.status_code)
+                return []
+
+        except Exception as e:
+            _LOGGER.warning("Fehler beim Abfragen der Sessions: %s", e)
+            return []

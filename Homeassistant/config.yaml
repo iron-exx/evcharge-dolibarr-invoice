@@ -16,7 +16,18 @@ ports:
 
 options:
   log_level: "INFO"
+
+  # Multi-Wallbox Konfiguration (EXT-01)
+  wallboxes:
+    - id: "alfen_eve"
+      name: "Alfen Eve (Hauptwandbox)"
+      enabled: true
+      default: true
+
+  # Fallback für Abwärtskompatibilität (wenn wallbox_id verwendet wird)
   wallbox_id: "alfen_eve"
+
+  # RFID Whitelist mit optionaler wallbox-Beschränkung
   rfid_whitelist:
     - "EFCD083E"
 
@@ -29,6 +40,7 @@ options:
 
 schema:
   log_level: "list(DEBUG|INFO|WARNING|ERROR)"
+  wallboxes: "list"
   wallbox_id: "str"
   rfid_whitelist: "list(str)"
   api:
