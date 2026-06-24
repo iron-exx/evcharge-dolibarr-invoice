@@ -1,6 +1,6 @@
 name: "Wallbox-Dolibarr Addon"
 description: "RFID-basierte Abrechnung von Wallbox-Ladevorgängen"
-version: "1.0.0"
+version: "1.1.0"
 slug: "wallbox-dolibarr"
 init: false
 
