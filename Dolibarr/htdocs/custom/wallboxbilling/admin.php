@@ -16,14 +16,17 @@ if (!$user->rights->wallboxbilling->admin) {
 $langs->load('wallboxbilling.lang');
 
 $action = GETPOST('action', 'alpha');
-$tab    = GETPOST('tab', 'aZ09');
-if (empty($tab)) $tab = 'config';
+
+// WR-09: Tab gegen Whitelist validieren
+$allowed_tabs = array('config', 'rfid');
+$tab = GETPOST('tab', 'aZ09');
+if (!in_array($tab, $allowed_tabs, true)) $tab = 'config';
 
 // --- Action: Konfiguration speichern ---
 if ($action == 'update') {
     checkToken();
     dolibarr_set_const($db, 'WALLBOXBILLING_DEFAULT_PRICE',
-        GETPOST('WALLBOXBILLING_DEFAULT_PRICE', 'alpha'), 'chaine', 0, '', $conf->entity);
+        GETPOST('WALLBOXBILLING_DEFAULT_PRICE', 'none'), 'chaine', 0, '', $conf->entity);
     dolibarr_set_const($db, 'WALLBOXBILLING_ADMIN_EMAIL',
         GETPOST('WALLBOXBILLING_ADMIN_EMAIL', 'email'), 'chaine', 0, '', $conf->entity);
     setEventMessages($langs->trans('Saved'), null, 'mesgs');
@@ -32,6 +35,8 @@ if ($action == 'update') {
 // --- Action: RFID speichern ---
 if ($action == 'update_rfid') {
     checkToken();
+
+    // Welcher Benutzer-Speichern-Button wurde gedrückt?
     $user_id = 0;
     foreach ($_POST as $key => $val) {
         if (preg_match('/^save_(\d+)$/', $key, $m)) {
@@ -39,34 +44,54 @@ if ($action == 'update_rfid') {
             break;
         }
     }
-    $rfid_hex    = GETPOST('rfid_hex_'.$user_id, 'alpha');
-    $price_kwh   = GETPOST('price_kwh_'.$user_id, 'alpha');
-    $cost_center = GETPOST('cost_center_'.$user_id, 'alpha');
 
-    if ($user_id > 0 && !empty($rfid_hex)) {
-        $rfid_hash = hash('sha256', $rfid_hex);
-        dol_syslog("Wallbox: saving RFID for user_id=$user_id hash=".substr($rfid_hash, 0, 12)."...", LOG_INFO);
-        $sql = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_rfid (fk_user, rfid_hash, price_kwh, cost_center)"
-             ." VALUES (".(int)$user_id.", '".$db->escape($rfid_hash)."',"
-             ." '".$db->escape($price_kwh)."', '".$db->escape($cost_center)."')"
-             ." ON DUPLICATE KEY UPDATE"
-             ."  fk_user=VALUES(fk_user),"
-             ."  price_kwh=VALUES(price_kwh),"
-             ."  cost_center=VALUES(cost_center)";
-        if ($db->query($sql)) {
-            setEventMessages($langs->trans('RFIDHashSaved'), null, 'mesgs');
+    if ($user_id > 0) {
+        $rfid_hex    = trim(GETPOST('rfid_hex_'.$user_id, 'aZ09'));
+        $cost_center = GETPOST('cost_center_'.$user_id, 'alphanohtml');
+
+        // WR-05: Dezimalwert nicht mit 'alpha' filtern — manuelle Validierung
+        $price_raw = trim(GETPOST('price_kwh_'.$user_id, 'none'));
+        if (!preg_match('/^\d+(\.\d{1,4})?$/', $price_raw)) {
+            setEventMessages($langs->trans('WallboxInvalidPrice'), null, 'errors');
         } else {
-            setEventMessages($langs->trans('DatabaseError').': '.$db->lasterror(), null, 'errors');
-            dol_syslog("Wallbox update_rfid SQL error: ".$db->lasterror(), LOG_ERR);
-        }
-    } elseif ($user_id > 0 && empty($rfid_hex)) {
-        // Nur Preis/Kostenstelle aktualisieren (kein neues RFID)
-        $sql = "UPDATE ".MAIN_DB_PREFIX."wallbox_rfid"
-             ." SET price_kwh='".$db->escape($price_kwh)."',"
-             ."     cost_center='".$db->escape($cost_center)."'"
-             ." WHERE fk_user=".(int)$user_id;
-        if ($db->query($sql) && $db->affected_rows() > 0) {
-            setEventMessages($langs->trans('Saved'), null, 'mesgs');
+            $price_kwh = $price_raw;
+
+            if (!empty($rfid_hex)) {
+                // Neues RFID setzen (Hash berechnen, nie den Hash in Logs/Responses)
+                $rfid_hash = hash('sha256', $rfid_hex);
+                dol_syslog("Wallbox: saving RFID mapping for user_id=$user_id", LOG_INFO);
+                // SEC-01: rfid_hash NICHT geloggt
+
+                $sql = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_rfid"
+                     ." (fk_user, rfid_hash, price_kwh, cost_center)"
+                     ." VALUES (".(int)$user_id.", '".$db->escape($rfid_hash)."',"
+                     ." '".$db->escape($price_kwh)."', '".$db->escape($cost_center)."')"
+                     ." ON DUPLICATE KEY UPDATE"
+                     ."  fk_user=VALUES(fk_user),"
+                     ."  price_kwh=VALUES(price_kwh),"
+                     ."  cost_center=VALUES(cost_center)";
+                if ($db->query($sql)) {
+                    setEventMessages($langs->trans('RFIDHashSaved'), null, 'mesgs');
+                } else {
+                    setEventMessages($langs->trans('DatabaseError').': '.$db->lasterror(), null, 'errors');
+                    dol_syslog("Wallbox update_rfid INSERT error for user_id=$user_id: ".$db->lasterror(), LOG_ERR);
+                }
+            } else {
+                // WR-04: Nur Preis/Kostenstelle aktualisieren — alle RFIDs dieses Users
+                // (Design: ein User = ein Preis, mehrere Karten erhalten denselben Satz)
+                $sql = "UPDATE ".MAIN_DB_PREFIX."wallbox_rfid"
+                     ." SET price_kwh='".$db->escape($price_kwh)."',"
+                     ."     cost_center='".$db->escape($cost_center)."'"
+                     ." WHERE fk_user=".(int)$user_id;
+                if ($db->query($sql) && $db->affected_rows() > 0) {
+                    setEventMessages($langs->trans('Saved'), null, 'mesgs');
+                } elseif ($db->affected_rows() == 0) {
+                    setEventMessages($langs->trans('WallboxNoRFIDToUpdate'), null, 'warnings');
+                } else {
+                    setEventMessages($langs->trans('DatabaseError').': '.$db->lasterror(), null, 'errors');
+                    dol_syslog("Wallbox update_rfid UPDATE error for user_id=$user_id: ".$db->lasterror(), LOG_ERR);
+                }
+            }
         }
     }
 }
@@ -153,7 +178,7 @@ if ($tab == 'config') {
     print '<div style="display:flex;align-items:center;gap:8px">';
     print '<input type="text" id="wb_price" name="WALLBOXBILLING_DEFAULT_PRICE" class="wb-input wb-input-sm"';
     print ' value="'.htmlspecialchars(getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE'), ENT_QUOTES, 'UTF-8').'"';
-    print ' placeholder="0.30">';
+    print ' placeholder="0.30" pattern="\d+(\.\d{1,4})?" title="Dezimalzahl, z.B. 0.30">';
     print '<span style="font-size:13px;color:#64748B">€/kWh</span>';
     print '</div></div>';
 
@@ -194,14 +219,18 @@ if ($tab == 'config') {
 // =====================================================================
 } elseif ($tab == 'rfid') {
 
-    // Vorhandene RFID-Zuordnungen laden
+    // CR-05/SEC-01: rfid_hash NICHT in SELECT laden — nur rowid für UPDATE-Referenz
     $existing = array();
     $res_rfid = $db->query(
-        "SELECT fk_user, rfid_hash, price_kwh, cost_center FROM ".MAIN_DB_PREFIX."wallbox_rfid"
+        "SELECT rowid, fk_user, price_kwh, cost_center FROM ".MAIN_DB_PREFIX."wallbox_rfid"
     );
     if ($res_rfid) {
         while ($obj_rfid = $db->fetch_object($res_rfid)) {
-            $existing[(int)$obj_rfid->fk_user] = $obj_rfid;
+            $existing[(int)$obj_rfid->fk_user] = array(
+                'rowid'       => (int)$obj_rfid->rowid,
+                'price_kwh'   => $obj_rfid->price_kwh,
+                'cost_center' => $obj_rfid->cost_center,
+            );
         }
         $db->free($res_rfid);
     }
@@ -228,13 +257,13 @@ if ($tab == 'config') {
     if ($res_users) {
         $num = $db->num_rows($res_users);
         if ($num == 0) {
-            print '<tr><td colspan="5"><div class="wb-empty">Keine aktiven Benutzer gefunden.</div></td></tr>';
+            print '<tr><td colspan="5"><div class="wb-empty">'.htmlspecialchars($langs->trans('WallboxNoActiveUsers'), ENT_QUOTES, 'UTF-8').'</div></td></tr>';
         }
         while ($obj = $db->fetch_object($res_users)) {
-            $uid  = (int)$obj->rowid;
+            $uid    = (int)$obj->rowid;
             $mapped = isset($existing[$uid]) ? $existing[$uid] : null;
-            $cur_price  = $mapped ? htmlspecialchars($mapped->price_kwh, ENT_QUOTES, 'UTF-8') : '';
-            $cur_center = $mapped ? htmlspecialchars($mapped->cost_center, ENT_QUOTES, 'UTF-8') : '';
+            $cur_price  = $mapped ? htmlspecialchars($mapped['price_kwh'], ENT_QUOTES, 'UTF-8') : '';
+            $cur_center = $mapped ? htmlspecialchars($mapped['cost_center'], ENT_QUOTES, 'UTF-8') : '';
 
             print '<tr>';
 
@@ -245,22 +274,24 @@ if ($tab == 'config') {
             print '</td>';
 
             // RFID-Status + Hex-Eingabe
+            // CR-05: Kein rfid_hash im HTML — nur Status (zugeordnet / nicht zugeordnet)
             print '<td>';
             if ($mapped) {
-                print '<span class="wb-badge-has">zugeordnet</span>';
-                print '<br><span style="font-size:11px;color:#94A3B8;font-family:monospace">'.htmlspecialchars(substr($mapped->rfid_hash, 0, 12), ENT_QUOTES, 'UTF-8').'…</span>';
-                print '<br><span style="font-size:11px;color:#64748B">Neuen Hex eingeben zum Ändern:</span>';
+                print '<span class="wb-badge-has">'.htmlspecialchars($langs->trans('WallboxRFIDAssigned'), ENT_QUOTES, 'UTF-8').'</span>';
+                print '<br><span style="font-size:11px;color:#64748B;display:block;margin-top:3px">'.htmlspecialchars($langs->trans('WallboxEnterNewHex'), ENT_QUOTES, 'UTF-8').'</span>';
             } else {
-                print '<span class="wb-badge-none">nicht zugeordnet</span>';
+                print '<span class="wb-badge-none">'.htmlspecialchars($langs->trans('WallboxRFIDNotAssigned'), ENT_QUOTES, 'UTF-8').'</span>';
             }
-            print '<br><input type="text" name="rfid_hex_'.$uid.'" class="wb-input wb-input-sm"';
-            print ' value="" placeholder="EFCD083E" style="margin-top:4px">';
+            print '<input type="text" name="rfid_hex_'.$uid.'" class="wb-input wb-input-sm"';
+            print ' value="" placeholder="EFCD083E" style="margin-top:4px"';
+            print ' autocomplete="off">';
             print '</td>';
 
-            // Preis
+            // Preis (WR-05: pattern-Attribut für clientseitige Validierung als Zusatzschutz)
             print '<td><div style="display:flex;align-items:center;gap:6px">';
             print '<input type="text" name="price_kwh_'.$uid.'" class="wb-input wb-input-xs"';
-            print ' value="'.$cur_price.'" placeholder="0.30">';
+            print ' value="'.$cur_price.'" placeholder="0.30"';
+            print ' pattern="\d+(\.\d{1,4})?" title="Dezimalzahl, z.B. 0.30">';
             print '<span style="font-size:12px;color:#64748B">€/kWh</span>';
             print '</div></td>';
 

@@ -7,14 +7,6 @@
  * Empfängt eine Lade-Session vom HA-Addon und schreibt sie direkt als
  * Zeile in die Spesenabrechnung (llx_expensereport_det) des Benutzers.
  * Kein Zwischenspeicher — keine llx_wallbox_sessions.
- *
- * Ablauf:
- *   1. Pflichtfelder prüfen (rfid_hash, wallbox_id, start_time, end_time, kwh)
- *   2. Benutzer + Preis aus llx_wallbox_rfid auflösen
- *   3. Offene Spesenabrechnung (draft) für diesen Benutzer+Monat suchen oder neu anlegen
- *   4. Zeile in llx_expensereport_det einfügen
- *   5. Summen in llx_expensereport aktualisieren
- *   6. {"success": true, "expensereport_id": X, "line_id": Y} zurückgeben
  */
 
 require_once DOL_DOCUMENT_ROOT.'/api/class/api.class.php';
@@ -23,12 +15,9 @@ class WallboxbillingApi extends DolibarrApi
 {
     public static $FIELDS_MANDATORY = array('rfid_hash', 'wallbox_id', 'start_time', 'end_time', 'kwh');
 
-    public $db;
-
     public function __construct($db)
     {
         parent::__construct($db);
-        $this->db = $db;
     }
 
     /**
@@ -61,17 +50,20 @@ class WallboxbillingApi extends DolibarrApi
         if (!preg_match('/^[a-f0-9]{64}$/i', $rfid_hash)) {
             throw new RestException(400, 'Invalid rfid_hash (64-char hex SHA-256 required)');
         }
-        if (strlen($wallbox_id) > 50) {
-            throw new RestException(400, 'wallbox_id too long (max 50 chars)');
+        // WR-03: wallbox_id auf druckbare sichere Zeichen beschränken
+        if (!preg_match('/^[\w\-\.]{1,50}$/', $wallbox_id)) {
+            throw new RestException(400, 'wallbox_id invalid (alphanumeric, hyphen, dot; max 50 chars)');
         }
         if ($end_ts <= $start_ts) {
             throw new RestException(400, 'end_time must be after start_time');
         }
-        if ($kwh < 0 || !is_finite($kwh)) {
-            throw new RestException(400, 'Invalid kwh value');
+        // WR-02: kwh=0 ablehnen (kein sinnvoller Ladevorgang)
+        if ($kwh <= 0 || !is_finite($kwh)) {
+            throw new RestException(400, 'kwh must be greater than 0');
         }
 
         // Benutzer + Preis aus RFID-Zuordnung ermitteln
+        // SEC-01: rfid_hash darf NICHT in Responses/Logs erscheinen
         $res = $this->db->query(
             "SELECT fk_user, price_kwh FROM ".MAIN_DB_PREFIX."wallbox_rfid"
            ." WHERE rfid_hash='".$this->db->escape($rfid_hash)."' LIMIT 1"
@@ -79,16 +71,20 @@ class WallboxbillingApi extends DolibarrApi
         if (!$res || $this->db->num_rows($res) == 0) {
             throw new RestException(404, 'RFID not registered in Dolibarr');
         }
-        $row       = $this->db->fetch_object($res);
-        $fk_user   = (int)   $row->fk_user;
-        $price_kwh = (float) $row->price_kwh ?: (float) getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE', 0.30);
-        $total_ht  = round($kwh * $price_kwh, 2);
+        $row     = $this->db->fetch_object($res);
+        $fk_user = (int) $row->fk_user;
 
-        // Offene Spesenabrechnung für Benutzer+Monat suchen oder neu anlegen
-        $year  = (int) date('Y', $end_ts);
-        $month = (int) date('n', $end_ts);
-        $report_id = $this->_findOrCreateReport($fk_user, $year, $month);
+        // CR-03: NULL-Check statt Falsy-Check — price_kwh=0 ist gültig (kostenlose Ladung)
+        $price_kwh = ($row->price_kwh !== null)
+            ? (float) $row->price_kwh
+            : (float) getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE', 0.30);
+        $total_ht = round($kwh * $price_kwh, 2);
+
+        // CR-06: Transaktion für atomares Find-or-Create
+        $this->db->begin();
+        $report_id = $this->_findOrCreateReport($fk_user, (int)date('Y', $end_ts), (int)date('n', $end_ts));
         if (!$report_id) {
+            $this->db->rollback();
             throw new RestException(500, 'Could not find or create expense report');
         }
 
@@ -118,20 +114,36 @@ class WallboxbillingApi extends DolibarrApi
            ." 0, 0, ".(float)$total_ht.", 0)"
         );
         if (!$resql) {
+            $this->db->rollback();
             dol_syslog("WallboxBilling postSession: expensereport_det INSERT failed: ".$this->db->lasterror(), LOG_ERR);
-            throw new RestException(500, 'DB error: '.$this->db->lasterror());
+            // CR-01: interne DB-Details nicht an Client weitergeben
+            throw new RestException(500, 'Internal server error. See system log.');
         }
-        $line_id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'expensereport_det');
 
-        // Report-Summen aktualisieren
+        // CR-07: last_insert_id prüfen
+        $line_id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'expensereport_det');
+        if ($line_id <= 0) {
+            $this->db->rollback();
+            dol_syslog("WallboxBilling: last_insert_id returned 0 after expensereport_det INSERT", LOG_ERR);
+            throw new RestException(500, 'Internal error: could not retrieve inserted line ID');
+        }
+
+        // WR-06: Report-Summen aktualisieren — Fehler nicht stillschweigend ignorieren
         $now = $this->db->idate(dol_now());
-        $this->db->query(
+        $res_upd = $this->db->query(
             "UPDATE ".MAIN_DB_PREFIX."expensereport"
            ." SET total_ht  = total_ht  + ".(float)$total_ht.","
-           ."     total_ttc = total_ttc + ".(float)$total_ht.","
+           ."     total_ttc = total_ttc + ".(float)$total_ht.","  // tva_tx=0, daher ttc=ht
            ."     date_modif = '".$now."'"
            ." WHERE rowid=".(int)$report_id
         );
+        if (!$res_upd) {
+            $this->db->rollback();
+            dol_syslog("WallboxBilling: expensereport SUM UPDATE failed: ".$this->db->lasterror(), LOG_ERR);
+            throw new RestException(500, 'Internal error updating expense report totals');
+        }
+
+        $this->db->commit();
 
         dol_syslog(
             "WallboxBilling: session recorded"
@@ -152,20 +164,20 @@ class WallboxbillingApi extends DolibarrApi
      */
     public function getHealth()
     {
-        return array('status' => 'ok', 'module' => 'wallboxbilling', 'version' => '2.0.0');
+        return array('status' => 'ok', 'module' => 'wallboxbilling');
     }
 
     // -------------------------------------------------------------------------
 
     private function _findOrCreateReport($fk_user, $year, $month)
     {
-        // Vorhandene Entwurfs-Abrechnung suchen
+        // Vorhandene Entwurfs-Abrechnung suchen (fk_statut=0 = STATUS_DRAFT)
         $res = $this->db->query(
             "SELECT rowid FROM ".MAIN_DB_PREFIX."expensereport"
            ." WHERE fk_user_author=".(int)$fk_user
            ."   AND YEAR(date_debut)=".(int)$year
            ."   AND MONTH(date_debut)=".(int)$month
-           ."   AND fk_statut=0"
+           ."   AND fk_statut=0"  // STATUS_DRAFT
            ." ORDER BY rowid DESC LIMIT 1"
         );
         if ($res && $this->db->num_rows($res) > 0) {
@@ -189,7 +201,7 @@ class WallboxbillingApi extends DolibarrApi
            ." 0, 0, 0, 0, 0, '".$note."')"
         );
         if (!$ok) {
-            // Race-Condition: nochmal suchen
+            // Race-Condition oder ref-Duplikat: nochmal suchen (auch Status != 0)
             $res2 = $this->db->query(
                 "SELECT rowid FROM ".MAIN_DB_PREFIX."expensereport"
                ." WHERE fk_user_author=".(int)$fk_user
@@ -201,7 +213,11 @@ class WallboxbillingApi extends DolibarrApi
             if ($res2 && $this->db->num_rows($res2) > 0) {
                 return (int) $this->db->fetch_object($res2)->rowid;
             }
-            dol_syslog("WallboxBilling: CREATE expensereport failed: ".$this->db->lasterror(), LOG_ERR);
+            dol_syslog(
+                "WallboxBilling: CREATE expensereport failed for user=$fk_user year=$year month=$month: "
+                .$this->db->lasterror(),
+                LOG_ERR
+            );
             return 0;
         }
         return (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'expensereport');
@@ -209,6 +225,7 @@ class WallboxbillingApi extends DolibarrApi
 
     private function _getExpenseTypeId()
     {
+        // TF_OTHER bevorzugen; Fallback: erste verfügbare Kategorie
         $res = $this->db->query(
             "SELECT rowid FROM ".MAIN_DB_PREFIX."c_type_fees"
            ." WHERE code='TF_OTHER' AND active=1 ORDER BY rowid LIMIT 1"
@@ -216,7 +233,6 @@ class WallboxbillingApi extends DolibarrApi
         if ($res && ($obj = $this->db->fetch_object($res))) {
             return (int) $obj->rowid;
         }
-        // Fallback: erste verfügbare Kategorie
         $res = $this->db->query(
             "SELECT rowid FROM ".MAIN_DB_PREFIX."c_type_fees WHERE active=1 ORDER BY rowid LIMIT 1"
         );
