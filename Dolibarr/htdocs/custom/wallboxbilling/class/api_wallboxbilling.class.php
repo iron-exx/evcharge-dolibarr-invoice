@@ -1,38 +1,30 @@
 <?php
 /**
- *  api_wallboxbilling.class.php - Wallbox Billing REST API
+ * api_wallboxbilling.class.php — Wallbox Billing REST API v2
  *
- *  Stellt API-Endpoint für HA-Addon bereit (POST /session)
- *  Validiert DOLAPIKEY Token, empfängt Session-JSON, speichert in llx_wallbox_sessions
+ * POST /api/index.php/wallboxbilling/session
  *
- *  @author    Wallbox-Dolibarr Team
- *  @version   1.0.0
- *  @requires  API-01, API-02, API-03, API-05, SEC-03
+ * Empfängt eine Lade-Session vom HA-Addon und schreibt sie direkt als
+ * Zeile in die Spesenabrechnung (llx_expensereport_det) des Benutzers.
+ * Kein Zwischenspeicher — keine llx_wallbox_sessions.
+ *
+ * Ablauf:
+ *   1. Pflichtfelder prüfen (rfid_hash, wallbox_id, start_time, end_time, kwh)
+ *   2. Benutzer + Preis aus llx_wallbox_rfid auflösen
+ *   3. Offene Spesenabrechnung (draft) für diesen Benutzer+Monat suchen oder neu anlegen
+ *   4. Zeile in llx_expensereport_det einfügen
+ *   5. Summen in llx_expensereport aktualisieren
+ *   6. {"success": true, "expensereport_id": X, "line_id": Y} zurückgeben
  */
 
 require_once DOL_DOCUMENT_ROOT.'/api/class/api.class.php';
-require_once DOL_DOCUMENT_ROOT.'/core/class/CMailFile.class.php';
 
-/**
- * WallboxbillingApi - REST API für Session-Upload vom HA-Addon
- */
 class WallboxbillingApi extends DolibarrApi
 {
-    /**
-     * @var array Pflichtfelder für Session-Upload
-     */
     public static $FIELDS_MANDATORY = array('rfid_hash', 'wallbox_id', 'start_time', 'end_time', 'kwh');
 
-    /**
-     * @var DoliDB Datenbank-Handler
-     */
     public $db;
 
-    /**
-     * Konstruktor
-     *
-     * @param DoliDB $db Datenbank-Verbindung
-     */
     public function __construct($db)
     {
         parent::__construct($db);
@@ -40,315 +32,197 @@ class WallboxbillingApi extends DolibarrApi
     }
 
     /**
-     * Session-Upload Endpunkt (POST)
+     * Lade-Session empfangen und direkt in Spesenabrechnung eintragen
      *
-     * Empfängt Lade-Session vom HA-Addon und speichert in llx_wallbox_sessions
-     *
-     * @param object|null $request_data JSON-Body mit Session-Daten
-     * @return array Response mit success, id, message
+     * @param object|null $request_data JSON-Body
+     * @return array {"success": true, "expensereport_id": int, "line_id": int}
      */
     public function postSession($request_data = null)
     {
-        // 1. Token-Validierung (SEC-03) - DolibarrApi prüft DOLAPIKEY automatisch
-        // Die Parent-Klasse prüft bereits den Token im Konstruktor oder bei jedem Request
-
-        // 2. Request-Daten holen (unterstützt sowohl JSON als auch Form-Daten)
         if ($request_data === null) {
             $request_data = (object) $_POST;
         }
 
-        // 3. Pflichtfelder prüfen
         $this->_checkMandatoryParameters($request_data, self::$FIELDS_MANDATORY);
 
-        // 4. Felder extrahieren und validieren
-        $rfid_hash = $request_data->rfid_hash;
-        $wallbox_id = $request_data->wallbox_id;
-        $start_time = $request_data->start_time;
-        $end_time = $request_data->end_time;
-        $kwh = $request_data->kwh;
+        $rfid_hash  = (string) $request_data->rfid_hash;
+        $wallbox_id = (string) $request_data->wallbox_id;
+        $kwh        = (float)  $request_data->kwh;
 
-        // RFID-Hash Validierung: 64-stelliger Hex-String (SHA-256)
+        // Zeitstempel parsen
+        try {
+            $start_ts = (new DateTime((string) $request_data->start_time))->getTimestamp();
+            $end_ts   = (new DateTime((string) $request_data->end_time))->getTimestamp();
+        } catch (Exception $e) {
+            throw new RestException(400, 'Invalid start_time or end_time (ISO 8601 required)');
+        }
+
+        // Validierungen
         if (!preg_match('/^[a-f0-9]{64}$/i', $rfid_hash)) {
-            throw new RestException(400, 'Invalid rfid_hash format (must be 64-char hex SHA-256)');
+            throw new RestException(400, 'Invalid rfid_hash (64-char hex SHA-256 required)');
         }
-
-        // Wallbox-ID Validierung: max 50 Zeichen
         if (strlen($wallbox_id) > 50) {
-            throw new RestException(400, 'Invalid wallbox_id (max 50 characters)');
+            throw new RestException(400, 'wallbox_id too long (max 50 chars)');
         }
-
-        // Zeitstempel validieren (ISO 8601 Format)
-        $start_datetime = $this->parseDateTime($start_time);
-        if ($start_datetime === false) {
-            throw new RestException(400, 'Invalid start_time format (expected ISO 8601)');
-        }
-
-        $end_datetime = $this->parseDateTime($end_time);
-        if ($end_datetime === false) {
-            throw new RestException(400, 'Invalid end_time format (expected ISO 8601)');
-        }
-
-        // End-Time muss nach Start-Time sein
-        if ($end_datetime <= $start_datetime) {
+        if ($end_ts <= $start_ts) {
             throw new RestException(400, 'end_time must be after start_time');
         }
-
-        // kWh Validierung: numerisch, >= 0, max 3 Nachkommastellen
-        if (!is_numeric($kwh) || $kwh < 0) {
-            throw new RestException(400, 'Invalid kwh (must be >= 0)');
-        }
-        if (strlen(substr(strrchr($kwh, '.'), 1)) > 3) {
-            throw new RestException(400, 'Invalid kwh (max 3 decimal places)');
+        if ($kwh < 0 || !is_finite($kwh)) {
+            throw new RestException(400, 'Invalid kwh value');
         }
 
-        // 5. Duplikatsprüfung (verhindert double-charge)
-        $sql_check = "SELECT rowid FROM ".MAIN_DB_PREFIX."wallbox_sessions "
-            ."WHERE rfid_hash = '".$this->db->escape($rfid_hash)."' "
-            ."AND start_time = '".$this->db->idate($start_datetime)."' "
-            ."AND end_time = '".$this->db->idate($end_datetime)."'";
-        $resql = $this->db->query($sql_check);
-        if ($resql && $this->db->num_rows($resql) > 0) {
-            return array('success' => false, 'message' => 'Session already exists');
+        // Benutzer + Preis aus RFID-Zuordnung ermitteln
+        $res = $this->db->query(
+            "SELECT fk_user, price_kwh FROM ".MAIN_DB_PREFIX."wallbox_rfid"
+           ." WHERE rfid_hash='".$this->db->escape($rfid_hash)."' LIMIT 1"
+        );
+        if (!$res || $this->db->num_rows($res) == 0) {
+            throw new RestException(404, 'RFID not registered in Dolibarr');
+        }
+        $row       = $this->db->fetch_object($res);
+        $fk_user   = (int)   $row->fk_user;
+        $price_kwh = (float) $row->price_kwh ?: (float) getDolGlobalString('WALLBOXBILLING_DEFAULT_PRICE', 0.30);
+        $total_ht  = round($kwh * $price_kwh, 2);
+
+        // Offene Spesenabrechnung für Benutzer+Monat suchen oder neu anlegen
+        $year  = (int) date('Y', $end_ts);
+        $month = (int) date('n', $end_ts);
+        $report_id = $this->_findOrCreateReport($fk_user, $year, $month);
+        if (!$report_id) {
+            throw new RestException(500, 'Could not find or create expense report');
         }
 
-        // 6. User-ID auflösen (RFID-Hash → fk_user)
-        $sql_user = "SELECT fk_user FROM ".MAIN_DB_PREFIX."wallbox_rfid "
-            ."WHERE rfid_hash = '".$this->db->escape($rfid_hash)."'";
-        $resql_user = $this->db->query($sql_user);
-        $fk_user = 0; // Default: unbekannt
-        if ($resql_user && ($obj = $this->db->fetch_object($resql_user))) {
-            $fk_user = (int) $obj->fk_user;
-        }
+        // Ausgabentyp-ID ermitteln (TF_OTHER bevorzugt)
+        $fk_type = $this->_getExpenseTypeId();
 
-        // 7. Session speichern (SEC-05: SQL-Injection prevention via escape)
-        $now = $this->db->idate(dol_now());
+        // Nächste Zeilennummer im Report
+        $res_rank = $this->db->query(
+            "SELECT COALESCE(MAX(rang), 0) + 1 AS n FROM ".MAIN_DB_PREFIX."expensereport_det"
+           ." WHERE fk_expensereport=".(int)$report_id
+        );
+        $rang = ($res_rank && ($r = $this->db->fetch_object($res_rank))) ? (int)$r->n : 1;
 
-        // Check if transmitted_at column exists, if not use created_at
-        $transmitted_col = 'transmitted_at';
-        $sql_test = "SELECT transmitted_at FROM ".MAIN_DB_PREFIX."wallbox_sessions LIMIT 1";
-        if (!$this->db->query($sql_test)) {
-            // Column doesn't exist, use date_creation instead
-            $transmitted_col = 'date_creation';
-        }
+        // Zeile einfügen
+        $comment  = $this->db->escape(
+            'Wallbox '.$wallbox_id.': '.number_format($kwh, 2, '.', '').' kWh'
+        );
+        $date_sql = $this->db->idate($end_ts);
 
-        // D-11: Write upload_status='ok' if column exists (requires Plan 01 upgrade to have run)
-        $has_upload_status = false;
-        $check_col = $this->db->query("SHOW COLUMNS FROM ".MAIN_DB_PREFIX."wallbox_sessions LIKE 'upload_status'");
-        if ($check_col && $this->db->num_rows($check_col) > 0) {
-            $has_upload_status = true;
-        }
-
-        if ($has_upload_status) {
-            $sql_insert = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
-                ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, {$transmitted_col}, upload_status, upload_error, uploaded_at) "
-                ."VALUES ("
-                .$fk_user.", "
-                ."'".$this->db->escape($rfid_hash)."', "
-                ."'".$this->db->escape($wallbox_id)."', "
-                ."'".$this->db->idate($start_datetime)."', "
-                ."'".$this->db->idate($end_datetime)."', "
-                .(float) $kwh.", "
-                ."0.30, " // Standard-Preis, wird später berechnet
-                ."0.00, " // Gesamtkosten, wird später berechnet
-                ."'completed', "
-                ."'".$now."', "
-                ."'".$now."', "
-                ."'ok', "           // upload_status = 'ok' (D-11, D-10: Dolibarr write on receipt)
-                ."NULL, "           // upload_error = NULL (no error on successful receipt)
-                ."'".$now."')";     // uploaded_at = NOW()
-        } else {
-            // Fallback: original INSERT without upload_status (column not yet created by Plan 01)
-            $sql_insert = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
-                ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, {$transmitted_col}) "
-                ."VALUES ("
-                .$fk_user.", "
-                ."'".$this->db->escape($rfid_hash)."', "
-                ."'".$this->db->escape($wallbox_id)."', "
-                ."'".$this->db->idate($start_datetime)."', "
-                ."'".$this->db->idate($end_datetime)."', "
-                .(float) $kwh.", "
-                ."0.30, " // Standard-Preis, wird später berechnet
-                ."0.00, " // Gesamtkosten, wird später berechnet
-                ."'completed', "
-                ."'".$now."', "
-                ."'".$now."')";
-        }
-
-        $resql = $this->db->query($sql_insert);
+        $resql = $this->db->query(
+            "INSERT INTO ".MAIN_DB_PREFIX."expensereport_det"
+           ." (fk_expensereport, date, fk_c_type_fees, rang, comments,"
+           ."  qty, value_unit, total_ht, tva_tx, total_tva, total_ttc, rule_warning_validated)"
+           ." VALUES ("
+           .(int)$report_id.", '".$date_sql."', ".(int)$fk_type.", ".(int)$rang.", '".$comment."',"
+           .(float)$kwh.", ".(float)$price_kwh.", ".(float)$total_ht.","
+           ." 0, 0, ".(float)$total_ht.", 0)"
+        );
         if (!$resql) {
-            // LOG-03: Fehler strukturiert loggen
-            dol_syslog("WallboxBilling: Session upload FAILED - wallbox=".$wallbox_id." error=".$this->db->lasterror(), LOG_ERR);
-
-            // ALT-02: Admin-E-Mail bei DB-Fehler (nur wenn konfiguriert)
-            $admin_email = getDolGlobalString('WALLBOXBILLING_ADMIN_EMAIL');
-            if (!empty($admin_email)) {
-                $from = getDolGlobalString('MAIN_MAIL_EMAIL_FROM');
-                if (empty($from)) {
-                    $from = getDolGlobalString('MAIN_INFO_SOCIETE_MAIL');
-                }
-                $subject = "Wallbox Upload-Fehler: Session konnte nicht gespeichert werden";
-                $message_body = "Session-Upload fehlgeschlagen."
-                    ."\n\nFehler: ".$this->db->lasterror()
-                    ."\n\nWallbox: ".$wallbox_id
-                    ."\n\nZeitpunkt: ".dol_print_date(dol_now(), 'dayhour');
-                $mail = new CMailFile($subject, $admin_email, $from, $message_body, array(), array(), array(), '', '', 0, 0);
-                if (!$mail->sendfile()) {
-                    dol_syslog("WallboxBilling: Admin-E-Mail konnte nicht gesendet werden: ".$mail->error, LOG_WARNING);
-                }
-            }
-
-            throw new RestException(500, 'DB Error: '.$this->db->lasterror());
+            dol_syslog("WallboxBilling postSession: expensereport_det INSERT failed: ".$this->db->lasterror(), LOG_ERR);
+            throw new RestException(500, 'DB error: '.$this->db->lasterror());
         }
+        $line_id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'expensereport_det');
 
-        $session_id = (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'wallbox_sessions');
+        // Report-Summen aktualisieren
+        $now = $this->db->idate(dol_now());
+        $this->db->query(
+            "UPDATE ".MAIN_DB_PREFIX."expensereport"
+           ." SET total_ht  = total_ht  + ".(float)$total_ht.","
+           ."     total_ttc = total_ttc + ".(float)$total_ht.","
+           ."     date_modif = '".$now."'"
+           ." WHERE rowid=".(int)$report_id
+        );
 
-        // LOG-03: Erfolg loggen
-        dol_syslog("WallboxBilling: Session upload OK - session_id=".$session_id." wallbox=".$wallbox_id." kwh=".$kwh, LOG_INFO);
+        dol_syslog(
+            "WallboxBilling: session recorded"
+            ." expensereport_id=$report_id line_id=$line_id"
+            ." user=$fk_user kwh=$kwh total=$total_ht",
+            LOG_INFO
+        );
 
         return array(
-            'success' => true,
-            'id' => $session_id,
-            'message' => 'Session stored'
+            'success'          => true,
+            'expensereport_id' => $report_id,
+            'line_id'          => $line_id,
         );
     }
 
     /**
-     * Hilfsmethode: Parse ISO 8601 Datum
-     *
-     * @param string $dateString Datumstring
-     * @return false|string Unix-Timestamp oder false bei Fehler
-     */
-    private function parseDateTime($dateString)
-    {
-        // Versuche verschiedene Formate zu parsen
-        try {
-            $dt = new DateTime($dateString);
-            return $dt->getTimestamp();
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    /**
-     * GET /health - Gesundheitscheck für Monitoring
-     *
-     * @return array Status-Info
+     * GET /health
      */
     public function getHealth()
     {
-        return array(
-            'status' => 'ok',
-            'module' => 'wallboxbilling',
-            'version' => '1.0.0'
+        return array('status' => 'ok', 'module' => 'wallboxbilling', 'version' => '2.0.0');
+    }
+
+    // -------------------------------------------------------------------------
+
+    private function _findOrCreateReport($fk_user, $year, $month)
+    {
+        // Vorhandene Entwurfs-Abrechnung suchen
+        $res = $this->db->query(
+            "SELECT rowid FROM ".MAIN_DB_PREFIX."expensereport"
+           ." WHERE fk_user_author=".(int)$fk_user
+           ."   AND YEAR(date_debut)=".(int)$year
+           ."   AND MONTH(date_debut)=".(int)$month
+           ."   AND fk_statut=0"
+           ." ORDER BY rowid DESC LIMIT 1"
         );
-    }
-}
-
-/**
- * Alternative: Standalone PHP Endpoint (ohne Dolibarr API Framework)
- * Erreichbar unter: /custom/wallboxbilling/api/session.php
- */
-if (basename($_SERVER['SCRIPT_NAME']) === 'session.php') {
-    // Standalone Endpoint ohne API-Framework
-    header('Content-Type: application/json');
-
-    // CORS Headers für HA-Addon
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, DOLAPIKEY');
-
-    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-        http_response_code(200);
-        exit;
-    }
-
-    // Token-Validierung (SEC-03)
-    $api_key = getenv('DOLAPIKEY') ?: ($_SERVER['HTTP_DOLAPIKEY'] ?? '');
-    if (empty($api_key)) {
-        http_response_code(401);
-        echo json_encode(array('error' => 'Missing DOLAPIKEY'));
-        exit;
-    }
-
-    // Datenbank-Verbindung
-    define('MAIN_DB_PREFIX', 'llx_');
-    require_once DOL_DOCUMENT_ROOT.'/main.inc.php';
-
-    // JSON-Body lesen
-    $input = file_get_contents('php://input');
-    $data = json_decode($input, true);
-
-    if (!$data) {
-        http_response_code(400);
-        echo json_encode(array('error' => 'Invalid JSON'));
-        exit;
-    }
-
-    // Pflichtfelder prüfen
-    $mandatory = array('rfid_hash', 'wallbox_id', 'start_time', 'end_time', 'kwh');
-    foreach ($mandatory as $field) {
-        if (!isset($data[$field])) {
-            http_response_code(400);
-            echo json_encode(array('error' => "Missing mandatory parameter: {$field}"));
-            exit;
+        if ($res && $this->db->num_rows($res) > 0) {
+            return (int) $this->db->fetch_object($res)->rowid;
         }
+
+        // Neue Abrechnung anlegen
+        $date_debut_ts = mktime(0, 0, 0, $month, 1, $year);
+        $last_day      = (int) date('t', $date_debut_ts);
+        $date_fin_ts   = mktime(23, 59, 59, $month, $last_day, $year);
+        $ref           = $this->db->escape('WB-'.$year.str_pad($month, 2, '0', STR_PAD_LEFT).'-'.$fk_user);
+        $note          = $this->db->escape('Wallbox-Abrechnung '.date('Y-m', $date_debut_ts));
+        $now           = $this->db->idate(dol_now());
+
+        $ok = $this->db->query(
+            "INSERT INTO ".MAIN_DB_PREFIX."expensereport"
+           ." (ref, entity, fk_user_author, date_create, date_debut, date_fin,"
+           ."  fk_statut, total_ht, total_ttc, total_tva, paid, note_private)"
+           ." VALUES ('".$ref."', ".(int)$GLOBALS['conf']->entity.", ".(int)$fk_user.","
+           ." '".$now."', '".$this->db->idate($date_debut_ts)."', '".$this->db->idate($date_fin_ts)."',"
+           ." 0, 0, 0, 0, 0, '".$note."')"
+        );
+        if (!$ok) {
+            // Race-Condition: nochmal suchen
+            $res2 = $this->db->query(
+                "SELECT rowid FROM ".MAIN_DB_PREFIX."expensereport"
+               ." WHERE fk_user_author=".(int)$fk_user
+               ."   AND YEAR(date_debut)=".(int)$year
+               ."   AND MONTH(date_debut)=".(int)$month
+               ."   AND fk_statut=0"
+               ." ORDER BY rowid DESC LIMIT 1"
+            );
+            if ($res2 && $this->db->num_rows($res2) > 0) {
+                return (int) $this->db->fetch_object($res2)->rowid;
+            }
+            dol_syslog("WallboxBilling: CREATE expensereport failed: ".$this->db->lasterror(), LOG_ERR);
+            return 0;
+        }
+        return (int) $this->db->last_insert_id(MAIN_DB_PREFIX.'expensereport');
     }
 
-    // RFID-Hash validieren
-    if (!preg_match('/^[a-f0-9]{64}$/i', $data['rfid_hash'])) {
-        http_response_code(400);
-        echo json_encode(array('error' => 'Invalid rfid_hash format (must be 64-char hex SHA-256)'));
-        exit;
+    private function _getExpenseTypeId()
+    {
+        $res = $this->db->query(
+            "SELECT rowid FROM ".MAIN_DB_PREFIX."c_type_fees"
+           ." WHERE code='TF_OTHER' AND active=1 ORDER BY rowid LIMIT 1"
+        );
+        if ($res && ($obj = $this->db->fetch_object($res))) {
+            return (int) $obj->rowid;
+        }
+        // Fallback: erste verfügbare Kategorie
+        $res = $this->db->query(
+            "SELECT rowid FROM ".MAIN_DB_PREFIX."c_type_fees WHERE active=1 ORDER BY rowid LIMIT 1"
+        );
+        if ($res && ($obj = $this->db->fetch_object($res))) {
+            return (int) $obj->rowid;
+        }
+        return 1;
     }
-
-    // kWh validieren
-    if (!is_numeric($data['kwh']) || $data['kwh'] < 0) {
-        http_response_code(400);
-        echo json_encode(array('error' => 'Invalid kwh (must be >= 0)'));
-        exit;
-    }
-
-    // Zeitstempel parsen
-    $start_ts = strtotime($data['start_time']);
-    $end_ts = strtotime($data['end_time']);
-
-    if (!$start_ts || !$end_ts) {
-        http_response_code(400);
-        echo json_encode(array('error' => 'Invalid date format'));
-        exit;
-    }
-
-    if ($end_ts <= $start_ts) {
-        http_response_code(400);
-        echo json_encode(array('error' => 'end_time must be after start_time'));
-        exit;
-    }
-
-    // Duplikatsprüfung
-    $sql_check = "SELECT rowid FROM ".MAIN_DB_PREFIX."wallbox_sessions "
-        ."WHERE rfid_hash = '".$db->escape($data['rfid_hash'])."' "
-        ."AND start_time = '".$db->idate($start_ts)."' "
-        ."AND end_time = '".$db->idate($end_ts)."'";
-    $res = $db->query($sql_check);
-    if ($res && $db->num_rows($res) > 0) {
-        echo json_encode(array('success' => false, 'message' => 'Session already exists'));
-        exit;
-    }
-
-    // Session speichern
-    $now = $db->idate(dol_now());
-    $sql = "INSERT INTO ".MAIN_DB_PREFIX."wallbox_sessions "
-        ."(fk_user, rfid_hash, wallbox_id, start_time, end_time, kwh, price_per_kwh, total_cost, status, date_creation, transmitted_at) "
-        ."VALUES (0, '".$db->escape($data['rfid_hash'])."', '".$db->escape($data['wallbox_id'])."', "
-        ."'".$db->idate($start_ts)."', '".$db->idate($end_ts)."', ".(float) $data['kwh'].", 0.30, 0.00, 'completed', '".$now."', '".$now."')";
-
-    if (!$db->query($sql)) {
-        http_response_code(500);
-        echo json_encode(array('error' => 'DB Error: '.$db->lasterror()));
-        exit;
-    }
-
-    $id = $db->last_insert_id(MAIN_DB_PREFIX.'wallbox_sessions');
-    echo json_encode(array('success' => true, 'id' => $id, 'message' => 'Session stored'));
-    exit;
 }

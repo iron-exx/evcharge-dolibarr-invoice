@@ -1,366 +1,129 @@
 <?php
 /**
- *  modWallboxbilling.class.php - Wallbox Billing Modul Descriptor
+ * modWallboxbilling.class.php — Wallbox Billing Modul Descriptor v2
  *
- *  @author    Wallbox-Dolibarr Team
- *  @version   1.0.0
+ * Schlankes Modul: nur RFID-Zuordnungstabelle, kein Cron, kein Export.
+ * Session-Daten gehen direkt in llx_expensereport / llx_expensereport_det.
  */
 
 require_once DOL_DOCUMENT_ROOT.'/core/modules/DolibarrModules.class.php';
 
-/**
- * Klasse für Wallbox Billing Modul
- */
 class modWallboxbilling extends DolibarrModules
 {
-    /**
-     * Konstruktor
-     */
     public function __construct($db)
     {
         global $langs, $conf;
 
-        $this->db = $db;
-        $this->numero = 104000; // Modul-Nummer (frei wählbar, > 100000)
-        $this->rights_class = 'wallboxbilling';
-        $this->family = "financial"; // Familie: Finanzen
-        $this->module_position = 80; // Position im Menü
+        $this->db             = $db;
+        $this->numero         = 104000;
+        $this->rights_class   = 'wallboxbilling';
+        $this->family         = 'financial';
+        $this->module_position = 80;
 
         $this->name = array(
             'en_US' => 'Wallbox Billing',
-            'de_DE' => 'Wallbox-Abrechnung'
+            'de_DE' => 'Wallbox-Abrechnung',
         );
 
         $this->description = array(
-            'en_US' => 'RFID-based billing for EV charging sessions',
-            'de_DE' => 'RFID-basierte Abrechnung von Wallbox-Ladevorgängen'
+            'en_US' => 'RFID-based EV charging — records sessions directly as expense report lines',
+            'de_DE' => 'RFID-basierte Wallbox-Abrechnung — direkt in Spesenabrechnung',
         );
 
-        $this->version = '1.0.0';
-        $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name['en_US']);
-        $this->special = 0;
-        $this->picto = 'wallbox@wallboxbilling'; // Icon aus img/ Verzeichnis
+        $this->version    = '2.0.0';
+        $this->const_name = 'MAIN_MODULE_WALLBOXBILLING';
+        $this->special    = 0;
+        $this->picto      = 'wallbox@wallboxbilling';
 
-        // Abhängigkeiten
-        $this->depends = array(); // Keine besonderen Abhängigkeiten
-        $this->requiredby = array();
+        $this->depends     = array();
+        $this->requiredby  = array();
         $this->conflictwith = array();
-        $this->langfiles = array("wallboxbilling.lang");
+        $this->langfiles   = array('wallboxbilling.lang');
 
-        // API-Endpunkt Registrierung (API-01, API-02)
-        // Der API-Endpoint wird über Dolibarr REST API exponiert:
-        // POST /api/index.php/wallboxbilling/session
+        // API-Endpoint
         $this->api_class = array('WallboxbillingApi');
 
-        // Berechtigungen definieren (D-08, SEC-04)
+        // Berechtigungen
         $this->rights = array();
-
         $r = 0;
 
-        // wallboxbilling.user - Normale Nutzer (können eigene Sessions sehen)
-        $this->rights[$r][0] = 104001; // ID für Berechtigung
-        $this->rights[$r][1] = 'View own charging sessions'; // Beschreibung (en)
-        $this->rights[$r][2] = 'r'; // Leserecht
-        $this->rights[$r][3] = 0; // Nicht aktiv standardmäßig
-        $this->rights[$r][4] = 'wallboxbilling.user'; // Berechtigungs-Key
-        $r++;
-
-        // wallboxbilling.admin - Admins (können alle Sessions verwalten)
-        $this->rights[$r][0] = 104002;
-        $this->rights[$r][1] = 'Manage all charging sessions and users';
-        $this->rights[$r][2] = 'w'; // Schreibrecht
+        $this->rights[$r][0] = 104001;
+        $this->rights[$r][1] = 'View own charging sessions';
+        $this->rights[$r][2] = 'r';
         $this->rights[$r][3] = 0;
-        $this->rights[$r][4] = 'wallboxbilling.admin';
+        $this->rights[$r][4] = 'wallboxbilling.user';
         $r++;
 
-        // wallboxbilling.billing - Billing (können Abrechnungen erstellen)
-        $this->rights[$r][0] = 104003;
-        $this->rights[$r][1] = 'Create monthly billing and invoices';
+        $this->rights[$r][0] = 104002;
+        $this->rights[$r][1] = 'Manage all charging sessions and RFID mappings';
         $this->rights[$r][2] = 'w';
         $this->rights[$r][3] = 0;
-        $this->rights[$r][4] = 'wallboxbilling.billing';
-        $r++;
+        $this->rights[$r][4] = 'wallboxbilling.admin';
 
-        // Cron-Jobs registrieren (BIL-01)
-        $this->cronjobs = array(
-            0 => array(
-                'entity' => 0,
-                'label' => 'Wallbox Monthly Billing',
-                'jobtype' => 'method',
-                'class' => 'wallboxbilling/class/billing.class.php',
-                'objectname' => 'WallboxBilling',
-                'method' => 'runMonthlyBilling',
-                'parameters' => '',
-                'comment' => 'Monatliche Wallbox-Abrechnung ausführen',
-                'frequency' => 1,
-                'unitfrequency' => 3600 * 24 * 30,  // ~30 Tage (Monat)
-                'priority' => 50,
-                'status' => 1,  // Aktiviert
-                'test' => '$conf->wallboxbilling->enabled'
-            )
-        );
+        // Kein Cron, kein Export
+        $this->cronjobs       = array();
+        $this->export_modules = array();
 
-        // Export-Module registrieren (EXT-02, EXT-03)
-        $this->export_modules = array(
-            0 => array(
-                'label' => 'Wallbox Billing',
-                'type' => 'export',
-                'export_label' => 'Wallbox Abrechnungen',
-                'icon' => 'wallboxbilling@wallboxbilling',
-                'class' => 'wallboxbilling/class/export.class.php'
-            )
-        );
-
-        // Modul-Initialisierung
         $this->init();
     }
 
-    /**
-     * Modul-Initialisierung (D-07, DB-03)
-     */
     public function init()
     {
-        // SQL-Tabellen erstellen
+        // Nur die RFID-Zuordnungstabelle — Sessions gehen direkt in llx_expensereport_det
         $sql = array();
 
-        // Haupt-Sessions Tabelle
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_sessions` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL DEFAULT 0,
-            `rfid_hash` VARCHAR(64) NOT NULL,
-            `wallbox_id` VARCHAR(50) NOT NULL DEFAULT 'alfen_eve',
-            `start_time` DATETIME NOT NULL,
-            `end_time` DATETIME NULL,
-            `kwh` REAL NOT NULL DEFAULT 0.0,
-            `price_per_kwh` REAL NOT NULL DEFAULT 0.30,
-            `total_cost` REAL NOT NULL DEFAULT 0.0,
-            `status` VARCHAR(20) NOT NULL DEFAULT 'active',
-            `date_creation` DATETIME NOT NULL,
-            `transmitted_at` DATETIME NULL,
-            `upload_status` ENUM('pending','ok','error') NOT NULL DEFAULT 'pending',
-            `upload_error` TEXT NULL,
-            `uploaded_at` DATETIME NULL,
-            `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
-
-        // RFID-Tabelle für User-Zuordnung
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_rfid` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL,
-            `rfid_hash` VARCHAR(64) NOT NULL,
-            `label` VARCHAR(255) DEFAULT '',
-            `active` TINYINT(1) NOT NULL DEFAULT 1,
-            `date_creation` DATETIME NOT NULL,
-            `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        $sql[] = "CREATE TABLE IF NOT EXISTS `".MAIN_DB_PREFIX."wallbox_rfid` (
+            `rowid`         INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
+            `fk_user`       INTEGER NOT NULL,
+            `rfid_hash`     VARCHAR(64) NOT NULL,
+            `price_kwh`     DECIMAL(8,4) NOT NULL DEFAULT 0.3000,
+            `cost_center`   VARCHAR(100) NOT NULL DEFAULT '',
+            `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `tms`           TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             UNIQUE KEY `uk_rfid_hash` (`rfid_hash`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
-
-        // Billing History Tabelle (BIL-01, BIL-02, BIL-03)
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL,
-            `billing_month` INTEGER NOT NULL,
-            `billing_year` INTEGER NOT NULL,
-            `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
-            `price_per_kwh` DECIMAL(10,4) NOT NULL,
-            `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
-            `session_count` INTEGER NOT NULL DEFAULT 0,
-            `session_details` LONGTEXT,
-            `fk_user_creator` INTEGER NOT NULL,
-            `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `status` INTEGER NOT NULL DEFAULT 1,
-            UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
-
-        // Indizes erstellen
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_rfid ON llx_wallbox_sessions(rfid_hash)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_user ON llx_wallbox_sessions(fk_user)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_status ON llx_wallbox_sessions(status)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_transmitted ON llx_wallbox_sessions(transmitted_at)";
 
         foreach ($sql as $query) {
             $this->db->query($query);
         }
 
+        // price_kwh / cost_center zu bestehender Tabelle hinzufügen falls nötig (Upgrade)
+        $this->_addColumnIfMissing(
+            MAIN_DB_PREFIX.'wallbox_rfid', 'price_kwh',
+            "ALTER TABLE ".MAIN_DB_PREFIX."wallbox_rfid ADD COLUMN price_kwh DECIMAL(8,4) NOT NULL DEFAULT 0.3000 AFTER rfid_hash"
+        );
+        $this->_addColumnIfMissing(
+            MAIN_DB_PREFIX.'wallbox_rfid', 'cost_center',
+            "ALTER TABLE ".MAIN_DB_PREFIX."wallbox_rfid ADD COLUMN cost_center VARCHAR(100) NOT NULL DEFAULT '' AFTER price_kwh"
+        );
+
         return 1;
     }
 
-    /**
-     * Modul-Installation
-     */
     public function install()
     {
-        global $db, $conf;
-
-        $error = 0;
-
-        // SQL-Tabellen erstellen
-        $sql = array();
-
-        // Haupt-Sessions Tabelle (falls noch nicht vorhanden)
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_sessions` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL DEFAULT 0,
-            `rfid_hash` VARCHAR(64) NOT NULL,
-            `wallbox_id` VARCHAR(50) NOT NULL DEFAULT 'alfen_eve',
-            `start_time` DATETIME NOT NULL,
-            `end_time` DATETIME NULL,
-            `kwh` REAL NOT NULL DEFAULT 0.0,
-            `price_per_kwh` REAL NOT NULL DEFAULT 0.30,
-            `total_cost` REAL NOT NULL DEFAULT 0.0,
-            `status` VARCHAR(20) NOT NULL DEFAULT 'active',
-            `date_creation` DATETIME NOT NULL,
-            `transmitted_at` DATETIME NULL,
-            `upload_status` ENUM('pending','ok','error') NOT NULL DEFAULT 'pending',
-            `upload_error` TEXT NULL,
-            `uploaded_at` DATETIME NULL,
-            `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
-
-        // RFID-Tabelle für User-Zuordnung
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_rfid` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL,
-            `rfid_hash` VARCHAR(64) NOT NULL,
-            `label` VARCHAR(255) DEFAULT '',
-            `active` TINYINT(1) NOT NULL DEFAULT 1,
-            `date_creation` DATETIME NOT NULL,
-            `tms` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY `uk_rfid_hash` (`rfid_hash`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8";
-
-        // Billing History Tabelle (BIL-01, BIL-02, BIL-03)
-        $sql[] = "CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
-            `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-            `fk_user` INTEGER NOT NULL,
-            `billing_month` INTEGER NOT NULL,
-            `billing_year` INTEGER NOT NULL,
-            `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
-            `price_per_kwh` DECIMAL(10,4) NOT NULL,
-            `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
-            `session_count` INTEGER NOT NULL DEFAULT 0,
-            `session_details` LONGTEXT,
-            `fk_user_creator` INTEGER NOT NULL,
-            `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `status` INTEGER NOT NULL DEFAULT 1,
-            UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
-
-        // Indizes
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_rfid ON llx_wallbox_sessions(rfid_hash)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_user ON llx_wallbox_sessions(fk_user)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_status ON llx_wallbox_sessions(status)";
-        $sql[] = "CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_transmitted ON llx_wallbox_sessions(transmitted_at)";
-
-        foreach ($sql as $query) {
-            $result = $db->query($query);
-            if (!$result) {
-                dol_syslog("WallboxBilling SQL error: ".$db->lasterror, LOG_ERR);
-                // Non-fatal - table might already exist
-            }
-        }
-
-        // transmitted_at Spalte hinzufügen falls nicht vorhanden (API-05, D-03)
-        $check_col = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE 'transmitted_at'";
-        $res = $db->query($check_col);
-        if (!$res || $db->num_rows($res) == 0) {
-            $db->query("ALTER TABLE llx_wallbox_sessions ADD COLUMN transmitted_at DATETIME NULL AFTER date_creation");
-        }
-
-        // Upgrade v1.1: upload_status, upload_error, uploaded_at (MON-02, MON-03)
-        $cols_to_add = array(
-            'upload_status' => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_status ENUM('pending','ok','error') NOT NULL DEFAULT 'pending' AFTER transmitted_at",
-            'upload_error'  => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_error TEXT NULL AFTER upload_status",
-            'uploaded_at'   => "ALTER TABLE llx_wallbox_sessions ADD COLUMN uploaded_at DATETIME NULL AFTER upload_error",
-        );
-
-        foreach ($cols_to_add as $col => $alter_sql) {
-            $check = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE '" . $col . "'";
-            $res = $db->query($check);
-            if (!$res || $db->num_rows($res) == 0) {
-                $result_alter = $db->query($alter_sql);
-                if (!$result_alter) {
-                    dol_syslog("WallboxBilling upgrade SQL error for column " . $col . ": " . $db->lasterror, LOG_ERR);
-                }
-            }
-        }
-
-        // Billing History Tabelle prüfen und hinzufügen (BIL-01)
-        $check_table = "SHOW TABLES LIKE 'llx_wallbox_billing_history'";
-        $resTable = $db->query($check_table);
-        if (!$resTable || $db->num_rows($resTable) == 0) {
-            $db->query("CREATE TABLE IF NOT EXISTS `llx_wallbox_billing_history` (
-                `rowid` INTEGER AUTO_INCREMENT PRIMARY KEY NOT NULL,
-                `fk_user` INTEGER NOT NULL,
-                `billing_month` INTEGER NOT NULL,
-                `billing_year` INTEGER NOT NULL,
-                `total_kwh` DECIMAL(10,2) NOT NULL DEFAULT 0,
-                `price_per_kwh` DECIMAL(10,4) NOT NULL,
-                `total_cost` DECIMAL(10,2) NOT NULL DEFAULT 0,
-                `session_count` INTEGER NOT NULL DEFAULT 0,
-                `session_details` LONGTEXT,
-                `fk_user_creator` INTEGER NOT NULL,
-                `date_creation` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                `status` INTEGER NOT NULL DEFAULT 1,
-                UNIQUE KEY `uk_user_month_year` (`fk_user`, `billing_month`, `billing_year`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-        }
-
-        // Berechtigungen einrichten (D-08, SEC-04)
+        $this->init();
         $this->insert_permissions();
-
-        return ($error == 0) ? 1 : 0;
-    }
-
-    /**
-     * Modul-Upgrade (für bestehende Installationen)
-     */
-    public function upgrade($version_from, $version_to)
-    {
-        global $db;
-
-        // Upgrade 3.0.0: transmitted_at Feld hinzufügen
-        $check_col = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE 'transmitted_at'";
-        $res = $db->query($check_col);
-        if (!$res || $db->num_rows($res) == 0) {
-            $db->query("ALTER TABLE llx_wallbox_sessions ADD COLUMN transmitted_at DATETIME NULL");
-            $db->query("CREATE INDEX IF NOT EXISTS idx_wallbox_sessions_transmitted ON llx_wallbox_sessions(transmitted_at)");
-        }
-
-        // Upgrade v1.1: upload_status, upload_error, uploaded_at (MON-02, MON-03)
-        $cols_to_add = array(
-            'upload_status' => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_status ENUM('pending','ok','error') NOT NULL DEFAULT 'pending' AFTER transmitted_at",
-            'upload_error'  => "ALTER TABLE llx_wallbox_sessions ADD COLUMN upload_error TEXT NULL AFTER upload_status",
-            'uploaded_at'   => "ALTER TABLE llx_wallbox_sessions ADD COLUMN uploaded_at DATETIME NULL AFTER upload_error",
-        );
-
-        foreach ($cols_to_add as $col => $alter_sql) {
-            $check = "SHOW COLUMNS FROM llx_wallbox_sessions LIKE '" . $col . "'";
-            $res = $db->query($check);
-            if (!$res || $db->num_rows($res) == 0) {
-                $result_alter = $db->query($alter_sql);
-                if (!$result_alter) {
-                    dol_syslog("WallboxBilling upgrade SQL error for column " . $col . ": " . $db->lasterror, LOG_ERR);
-                }
-            }
-        }
-
         return 1;
     }
 
-    /**
-     * Modul-Deinstallation
-     */
+    public function upgrade($version_from, $version_to)
+    {
+        $this->init();
+        return 1;
+    }
+
     public function uninstall()
     {
-        global $db;
-
-        $error = 0;
-
-        // Berechtigungen entfernen
         $this->delete_permissions();
+        return 1;
+    }
 
-        return ($error == 0) ? 1 : 0;
+    private function _addColumnIfMissing($table, $column, $alter_sql)
+    {
+        $res = $this->db->query("SHOW COLUMNS FROM `".$table."` LIKE '".$column."'");
+        if (!$res || $this->db->num_rows($res) == 0) {
+            $this->db->query($alter_sql);
+        }
     }
 }
-?>
