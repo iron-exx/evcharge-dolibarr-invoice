@@ -624,3 +624,71 @@ class SessionManager:
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
+
+    def get_recent_sessions(self, limit: int = 25) -> list:
+        """Returns last N completed sessions for the dashboard.
+        rfid_hash is NEVER included in the SELECT (SEC-01/02)."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT id, start_time, end_time, wallbox_id, total_kwh, "
+                "upload_status, upload_error "
+                "FROM sessions WHERE status = 'completed' "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,)
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    "id": row[0],
+                    "start_time": row[1] or "",
+                    "end_time": row[2] or "",
+                    "wallbox_id": row[3] or "",
+                    "total_kwh": row[4] or 0.0,
+                    "upload_status": row[5] or "pending",
+                    "upload_error": row[6] or "",
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            self._logger.error("get_recent_sessions Fehler: %s", e)
+            return []
+        finally:
+            conn.close()
+
+    def get_stats(self) -> dict:
+        """Returns session counts by upload_status for the dashboard."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT upload_status, COUNT(*) FROM sessions "
+                "WHERE status = 'completed' GROUP BY upload_status"
+            )
+            counts: dict = {}
+            for row in cursor.fetchall():
+                counts[row[0] or "pending"] = row[1]
+
+            cursor.execute(
+                "SELECT COUNT(*) FROM dead_letter WHERE status = 'pending'"
+            )
+            dead_letter_pending = cursor.fetchone()[0]
+
+            total = sum(counts.values())
+            return {
+                "total": total,
+                "ok": counts.get("ok", 0),
+                "error": counts.get("error", 0),
+                "dead_letter": counts.get("dead_letter", 0),
+                "pending": counts.get("pending", 0),
+                "dead_letter_pending": dead_letter_pending,
+            }
+        except Exception as e:
+            self._logger.error("get_stats Fehler: %s", e)
+            return {
+                "total": 0, "ok": 0, "error": 0,
+                "dead_letter": 0, "pending": 0, "dead_letter_pending": 0,
+            }
+        finally:
+            conn.close()

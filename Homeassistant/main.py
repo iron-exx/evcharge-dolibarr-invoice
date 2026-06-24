@@ -24,6 +24,9 @@ from session_manager import SessionManager, CHARGING, IDLE, STOPPED
 # API Client importieren (Phase 3)
 from api_client import WallboxApiClient
 
+# Web Dashboard importieren
+from dashboard import DASHBOARD_HTML
+
 # Logging Setup (D-17, D-20)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(
@@ -332,6 +335,34 @@ async def check_startup_session():
         _LOGGER.info("Keine aktiven Sessions beim Start - alles bereit")
 
 
+async def handle_dashboard(request):
+    """GET / - Web-Dashboard HTML (single-page, selbst-enthaltend)"""
+    return web.Response(text=DASHBOARD_HTML, content_type='text/html', charset='utf-8')
+
+
+async def handle_api_status(request):
+    """GET /api/status - Addon-Status + Session-Statistiken als JSON"""
+    global session_manager, api_client
+    stats = session_manager.get_stats() if session_manager else {
+        "total": 0, "ok": 0, "error": 0,
+        "dead_letter": 0, "pending": 0, "dead_letter_pending": 0,
+    }
+    stats["api_connected"] = api_client is not None
+    return web.json_response(stats, status=200)
+
+
+async def handle_api_sessions(request):
+    """GET /api/sessions - Letzte 25 abgeschlossene Sessions als JSON (kein rfid_hash, SEC-01)"""
+    if not session_manager:
+        return web.json_response([], status=200)
+    try:
+        sessions = session_manager.get_recent_sessions(limit=25)
+        return web.json_response(sessions, status=200)
+    except Exception as e:
+        _LOGGER.error("api/sessions Fehler: %s", e)
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_health(request):
     """GET /health - Liveness-Check fuer Dolibarr cURL-Ping (MON-01, D-04)"""
     return web.json_response({"status": "ok", "addon": "wallbox-dolibarr"}, status=200)
@@ -402,8 +433,11 @@ async def handle_dead_letter_list(request):
 
 
 async def start_health_server(port: int = 8099) -> web.AppRunner:
-    """Startet aiohttp HTTP-Server fuer /health und /session/stop Endpunkte (D-04, D-15)"""
+    """Startet aiohttp HTTP-Server fuer Dashboard + API-Endpunkte"""
     app = web.Application()
+    app.router.add_get('/', handle_dashboard)
+    app.router.add_get('/api/status', handle_api_status)
+    app.router.add_get('/api/sessions', handle_api_sessions)
     app.router.add_get('/health', handle_health)
     app.router.add_post('/session/stop', handle_session_stop)
     app.router.add_post('/session/retry', handle_session_retry)
