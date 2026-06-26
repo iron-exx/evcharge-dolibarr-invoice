@@ -20,15 +20,8 @@ class modWallboxbilling extends DolibarrModules
         $this->family         = 'financial';
         $this->module_position = 80;
 
-        $this->name = array(
-            'en_US' => 'Wallbox Billing',
-            'de_DE' => 'Wallbox-Abrechnung',
-        );
-
-        $this->description = array(
-            'en_US' => 'RFID-based EV charging — records sessions directly as expense report lines',
-            'de_DE' => 'RFID-basierte Wallbox-Abrechnung — direkt in Spesenabrechnung',
-        );
+        $this->name        = 'Wallboxbilling';
+        $this->description = 'RFID-based EV charging — records sessions directly as expense report lines';
 
         $this->version     = '2.0.0';
         $this->const_name  = 'MAIN_MODULE_WALLBOXBILLING';
@@ -65,7 +58,7 @@ class modWallboxbilling extends DolibarrModules
         $this->export_modules = array();
     }
 
-    public function init()
+    public function init($options = '')
     {
         // Nur die RFID-Zuordnungstabelle — Sessions gehen direkt in llx_expensereport_det
         $sql = array();
