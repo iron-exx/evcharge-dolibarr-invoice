@@ -56,6 +56,98 @@ api:
 | `api.transmit_interval` | Sekunden zwischen Retry-Loops (Default 300 = 5 min) |
 | `api.timeout` | HTTP-Timeout in Sekunden für die Übertragung an Dolibarr |
 
+## Betriebsart OCPP (herstellerunabhängig, empfohlen für neue Installationen)
+
+Ab Version 2.0.0 kann das Addon **selbst OCPP-1.6J-Zentralserver** sein. Die Wallbox
+verbindet sich dann direkt per WebSocket mit ExpenseCharge, statt dass HA-Sensoren
+ausgewertet werden.
+
+### Welcher Betrieb passt?
+
+| | `session_source: ha_sensors` (Default) | `session_source: ocpp` |
+|---|---|---|
+| Datenquelle | HA-Sensoren (Tag, Zähler, Zustand) | Die Wallbox selbst, per OCPP |
+| Zugriffskontrolle | keine — die Wallbox lädt, das Addon protokolliert nur | **echt**: unbekannte Karten laden nicht |
+| Zählerstände | HA-Sensorwert zum Start-/Endzeitpunkt | `meterStart`/`meterStop` der Wallbox |
+| Mehrere Wallboxen | eine Instanz je Wallbox | mehrere gleichzeitig in einer Instanz |
+| HACS-Integration nötig | ja (z.B. Alfen) | nein |
+| Wallbox offline | Lücke, Sensor liefert nichts | Wallbox puffert und liefert nach |
+| Einschränkung | — | **Eine Wallbox kennt nur ein OCPP-Backend.** Wer schon ein Cloud-Backend nutzt, müsste darauf verzichten. |
+
+Ein Moduswechsel sollte nur ohne laufenden Ladevorgang erfolgen.
+
+### Einrichtung Schritt für Schritt
+
+1. **Port freigeben**: Addon → *Konfiguration* → Abschnitt **Netzwerk** → bei `9000/tcp`
+   einen Host-Port eintragen (z.B. `9000`). Der Default ist bewusst leer, weil Port 9000
+   mit der HACS-Integration `lbbrhzn/ocpp` kollidieren würde.
+2. `session_source: ocpp` setzen und das Addon neu starten.
+3. **Wallbox einstellen**: Backend-URL `ws://<HA-IP>:<Port>/`, Protokoll „OCPP 1.6 JSON",
+   Autorisierung auf *Central System* / *Backend*. Die meisten Wallboxen hängen ihre eigene
+   ID selbst an die URL an; sonst `ws://<HA-IP>:<Port>/<Charge-Point-ID>`.
+4. **Addon-Log lesen.** Beim ersten Verbindungsversuch steht dort:
+   `Unbekannte Wallbox 'ACE0123456' abgewiesen — in ocpp_charge_points eintragen`.
+   Das ist die ID, die die Wallbox sendet.
+5. Diese ID in `ocpp_charge_points` eintragen, optional mit Passwort (Basic Auth).
+6. **Karten in GROSSBUCHSTABEN** in `rfid_whitelist` und in Dolibarr eintragen. Die ID
+   einer abgelehnten Karte zeigt die Ingress-UI im Live-Block rot an.
+
+### Beispielkonfiguration
+
+```yaml
+session_source: ocpp
+rfid_whitelist:
+  - "EFCD083E"
+ocpp_charge_points:
+  - id: "ACE0123456"
+    password: "bitte-mindestens-16-zeichen"
+    wallbox_id: "garage"
+ocpp_apply_recommended_config: true
+```
+
+Optional lässt sich mit `ocpp_heartbeat_interval` (30–3600, Default 300) das
+Heartbeat-Intervall festlegen, das der Wallbox beim Anmelden mitgeteilt wird.
+
+`ocpp_apply_recommended_config: true` setzt nach jedem Wallbox-Start
+`MeterValueSampleInterval=60`, `MeterValuesSampledData=Energy.Active.Import.Register`
+und `StopTransactionOnInvalidId=true`. Ohne diese Option wird **nichts** an der Wallbox
+verändert.
+
+### Unterstützte Wallboxen
+
+| Hersteller / Modell | OCPP lokal | Einrichtung | Hinweis |
+|---|---|---|---|
+| Alfen Eve Single/Double (Pro-line, S-line), NG9xx | 1.6J (NG9xx auch 2.0.1) | ACE Service Installer (Installateur-Zugang) | Die Charge-Box-ID wird angehängt |
+| ABL eMH2/eMH3/eMC2/eMC3, eM4 | 1.6J | Web-UI `http://169.254.1.1:8300/` | eMH1: nur Modbus, kein OCPP |
+| Keba P30 x-series, P40 | 1.6J | Web-UI „Central System Address/Path" | P30 c-series: kein OCPP |
+| go-e V3/V4/V5 (FW ≥ 59.4), Pro (≥ 59.3) | 1.6J | App → Internet → OCPP | |
+| Mennekes AMTRON / AMEDIO | 1.6J | Web-UI → Backend | |
+| Compleo eBOX smart/professional | 1.6J | eCONFIG-App (Bluetooth) | |
+| Easee | 1.6J „native OCPP" (FW ≥ 328) | Aktivierung über Easee-Cloud-API, danach lokal `ws://` | |
+| Zaptec Go/Go2/Pro | 1.6J | Zaptec-Portal („Allow OCPP 1.6J") | Die Cloud bleibt aktiv |
+| Wallbox Pulsar Plus / Copper SB / Commander 2 | 1.6J | myWallbox-App/Portal, Passwort leer | Bei FW 5.x teils keine MeterValues → Fallback greift |
+| Heidelberg Energy Control | – | nur mit zusätzlicher Heidelberg Combox | |
+
+### Verhalten bei Ausfällen
+
+- **Wallbox offline**: sie puffert Start/Stop und liefert sie später nach. Die Ladung
+  landet im Monat der echten Ladung, nicht im Monat der Nachlieferung.
+- **Addon-Neustart während einer Ladung**: die Session bleibt `active` und wird erst mit
+  der `StopTransaction` der Wallbox abgeschlossen. Es wird **kein** Zählerstand geraten.
+- **Dolibarr offline**: die Session liegt im SQLite-Puffer, Retry mit Backoff.
+- **Unbrauchbarer Endzählerstand**: die Session wird `incomplete` statt falsch abgerechnet —
+  sichtbar für den Admin.
+
+### Sicherheit
+
+- Security Profile 1 (Basic Auth ohne TLS) ist nur im **vertrauenswürdigen LAN** vertretbar.
+  Das Passwort sollte mindestens 16 Zeichen haben; der Benutzername **muss** die
+  Charge-Point-ID sein (OCPP-Vorgabe A00.FR.204).
+- Für TLS einen Reverse-Proxy (z.B. NGINX-Addon) oder ein VPN vorschalten.
+- **Den Port niemals ins Internet freigeben.**
+- Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
+  abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.
+
 ## Wallbox-Profile (herstellerunabhängige Konfiguration)
 
 `wallbox_profile` schaltet zwischen zwei Betriebsarten um:

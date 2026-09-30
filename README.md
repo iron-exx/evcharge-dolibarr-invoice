@@ -7,7 +7,7 @@ RFID-basierte Abrechnung von Wallbox-Ladevorgängen — Sessions werden vom Home
 
 
 ![Dolibarr-Modul](https://img.shields.io/badge/Dolibarr--Modul-2.2.0-blue)
-![HA-Addon](https://img.shields.io/badge/HA--Addon-1.8.2-blue)
+![HA-Addon](https://img.shields.io/badge/HA--Addon-2.0.0-blue)
 ![Dolibarr](https://img.shields.io/badge/Dolibarr-20.x--22.x-green)
 ![Python](https://img.shields.io/badge/Python-3.12+-green)
 ![License](https://img.shields.io/badge/License-Proprietary-red)
@@ -112,6 +112,8 @@ Zwei Tabs im Ingress:
 
 ## Datenfluss im Detail
 
+### Betriebsart `ha_sensors` (Default, bisheriges Verhalten)
+
 1. **RFID gelesen** (`sensor.alfen_eve_tag_socket_1`): wechselt von `No Tag` auf eine Tag-ID (z.B. `A1B2C3D4`)
 2. **Whitelist + Debounce**: 7-Sekunden-Sperre gegen Doppellesungen
 3. **Session starten**: lokale SQLite speichert `start_time` + `start_energy_kwh` (Zählerstand aus `sensor.alfen_eve_meter_reading_socket_1`)
@@ -126,6 +128,21 @@ Zwei Tabs im Ingress:
    - Bei Erfolg: `transmitted_at` lokal gesetzt
    - Bei `HTTP 404 RFID not registered`: Admin muss die Karte erst zuordnen, Addon retried automatisch
    - Bei `HTTP 401 Unauthorized`: API-Token in Dolibarr und Addon stimmen nicht überein
+
+### Betriebsart `ocpp` (ab Addon 2.0.0)
+
+Mit `session_source: ocpp` ist das Addon **selbst OCPP-1.6J-Zentralserver**. Die Wallbox
+verbindet sich direkt per WebSocket (`ws://<HA-IP>:<Port>/<Charge-Point-ID>`), statt dass
+HA-Sensoren ausgewertet werden. Damit gibt es echte Zugriffskontrolle — **unbekannte Karten
+laden nicht** —, die Zählerstände kommen unmittelbar aus `meterStart`/`meterStop` der
+Wallbox, und mehrere Wallboxen laufen gleichzeitig in einer Instanz. Eine HACS-Integration
+ist dann nicht mehr nötig.
+
+Einschränkung: eine Wallbox kennt nur **ein** OCPP-Backend. Wer bereits ein Cloud-Backend
+nutzt, müsste darauf verzichten. `ha_sensors` bleibt unverändert verfügbar.
+
+Einrichtung, Herstellertabelle und Sicherheitshinweise:
+[wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
 
 ## Sicherheit & Compliance
 

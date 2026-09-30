@@ -108,6 +108,36 @@ Die Authentifizierung läuft über ein **einzelnes gemeinsames Token** (Shared S
 
 ---
 
+## 3.4 — Variante OCPP (statt HA-Sensoren)
+
+Ab Addon 2.0.0 kann ExpenseCharge selbst OCPP-1.6J-Zentralserver sein. Dann entfällt die
+HACS-Integration, und unbekannte Karten laden nicht.
+
+Checkliste:
+
+1. Addon → *Konfiguration* → **Netzwerk**: bei `9000/tcp` einen Host-Port eintragen
+   (z.B. `9000`). Default ist leer, weil Port 9000 mit der HACS-Integration
+   `lbbrhzn/ocpp` kollidieren würde.
+2. `session_source: ocpp` setzen, Addon neu starten.
+3. Wallbox auf `ws://<HA-IP>:<Port>/` einstellen, Protokoll „OCPP 1.6 JSON",
+   Autorisierung auf *Central System* / *Backend*. Die meisten Wallboxen hängen ihre
+   ID selbst an; sonst `ws://<HA-IP>:<Port>/<Charge-Point-ID>`.
+4. Addon-Log lesen — `Unbekannte Wallbox 'XYZ' abgewiesen` nennt die ID der Wallbox.
+5. Diese ID in `ocpp_charge_points` eintragen, optional mit Passwort (mind. 16 Zeichen):
+
+   ```yaml
+   session_source: ocpp
+   ocpp_charge_points:
+     - id: "ACE0123456"
+       password: "bitte-mindestens-16-zeichen"
+       wallbox_id: "garage"
+   ```
+6. Karten in **GROSSBUCHSTABEN** in `rfid_whitelist` und in Dolibarr eintragen. Die ID
+   einer abgelehnten Karte zeigt die Ingress-UI rot an.
+
+Details, Herstellertabelle und Sicherheitshinweise:
+[wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
+
 ## 4 — Funktionsprüfung (End-to-End)
 
 1. Karte an die Wallbox halten → Ladevorgang starten.
