@@ -27,6 +27,7 @@ __pycache__/
 Thumbs.db
 
 # Secrets — NIE committen
+.secret/
 github_token.txt
 github_token_*.txt
 *.token
