@@ -133,3 +133,55 @@ def test_legacy_ha_path_unaffected(sm):
     assert sm.get_active_ocpp_sessions() == []
     assert sm.end_session(110.0)["total_kwh"] == pytest.approx(10.0)
     assert _row(sm, sid)["charge_point_id"] is None
+
+
+# ---- Feindliche Eingaben aus dem Code-Review ------------------------------
+
+def test_stuck_clock_does_not_swallow_later_charges(sm):
+    """Wallbox mit nie gestellter Uhr meldet für JEDE Ladung denselben
+    Start-Zeitstempel. Ohne weiteres Unterscheidungsmerkmal bekäme die zweite
+    Ladung die ID der ersten, würde nichts einfügen, und ihr Stop liefe ins
+    Leere — die Ladung wäre nirgends erfasst, nicht einmal als incomplete.
+    """
+    first = _start(sm, meter=1000.0, ts="1970-01-01T00:00:00Z")
+    assert sm.stop_ocpp_transaction(first, "CP1", 1010.0, "2026-09-30T12:00:00", "Local") is not None
+
+    # Zweite, echte Ladung — gleicher (kaputter) Zeitstempel, aber der Zähler
+    # ist weitergelaufen: das ist unterscheidbar.
+    second = _start(sm, meter=1010.0, ts="1970-01-01T00:00:00Z",
+                    start_time="2026-09-30T14:00:00")
+    assert second != first, "zweite Ladung hat die ID der ersten geerbt"
+    done = sm.stop_ocpp_transaction(second, "CP1", 1025.0, "2026-09-30T16:00:00", "Local")
+    assert done is not None and done["total_kwh"] == pytest.approx(15.0)
+
+
+def test_genuine_retry_still_idempotent_with_same_meter_start(sm):
+    """Ein echter Wiederholungsversuch hat denselben Zeitstempel UND denselben
+    Startzählerstand — der muss weiterhin dieselbe ID bekommen (D3)."""
+    a = _start(sm, meter=1000.0, ts="2026-09-30T08:00:00Z")
+    b = _start(sm, meter=1000.0, ts="2026-09-30T08:00:00Z")
+    assert a == b
+    assert len(sm.get_active_ocpp_sessions()) == 1
+
+
+def test_long_session_below_min_kwh_is_incomplete_not_discarded(sm):
+    """Meldet eine Wallbox ihren Zähler in kWh statt in Wh (OCPP verlangt Wh),
+    ist das Ergebnis 1000x zu klein und fiele unter min_session_kwh — die
+    Ladung würde als 'discarded' still verworfen UND als übertragen markiert.
+    Eine stundenlange Session unter min_kwh ist aber ein Zählerfehler, kein
+    'Karte gehalten und weggegangen' → sichtbar als incomplete.
+    """
+    tx = _start(sm, meter=1000.0, start_time="2026-09-30T10:00:00")
+    assert sm.stop_ocpp_transaction(tx, "CP1", 1000.01, "2026-09-30T14:00:00", "Local") is None
+    row = _row(sm, tx)
+    assert row["status"] == "incomplete", f"war {row['status']}"
+    assert row["transmitted_at"] is None, "darf nicht als erledigt abgehakt werden"
+
+
+def test_short_session_below_min_kwh_stays_discarded(sm):
+    """Der eigentliche Zweck von 'discarded': Karte kurz gehalten, nie geladen."""
+    tx = _start(sm, meter=1000.0, start_time="2026-09-30T10:00:00")
+    assert sm.stop_ocpp_transaction(tx, "CP1", 1000.01, "2026-09-30T10:03:00", "Local") is None
+    row = _row(sm, tx)
+    assert row["status"] == "discarded"
+    assert row["transmitted_at"] is not None

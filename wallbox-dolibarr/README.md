@@ -140,9 +140,18 @@ verändert.
 
 ### Sicherheit
 
+- **Ohne Passwort (`password: ""`) kann jedes Gerät im Netz, das Port und Charge-Point-ID
+  kennt, Ladevorgänge frei erfinden** — mit der RFID einer echten Karte. Das Ergebnis ist
+  eine Spesenzeile in der Abrechnung **eines echten Mitarbeiters**. Wer kein Passwort
+  setzt, muss dem gesamten Netzsegment so weit trauen wie der Lohnbuchhaltung. Deshalb:
+  Passwort setzen, wo die Wallbox eines unterstützt.
 - Security Profile 1 (Basic Auth ohne TLS) ist nur im **vertrauenswürdigen LAN** vertretbar.
   Das Passwort sollte mindestens 16 Zeichen haben; der Benutzername **muss** die
-  Charge-Point-ID sein (OCPP-Vorgabe A00.FR.204).
+  Charge-Point-ID sein (OCPP-Vorgabe A00.FR.204). Eine Ratebremse gibt es nicht — ein
+  kurzes Passwort ist im LAN in Sekunden durchprobiert.
+- Der Karten-Hash im Log ist **pseudonymisiert, nicht anonymisiert**: `hash_rfid` ist ein
+  ungesalzenes SHA-256 über eine 8-stellige Hex-ID, also mit einer Rainbow-Table
+  umkehrbar. Für die DSGVO-Bewertung zählt der Log damit als personenbezogen.
 - Für TLS einen Reverse-Proxy (z.B. NGINX-Addon) oder ein VPN vorschalten.
 - **Den Port niemals ins Internet freigeben.**
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer

@@ -43,7 +43,9 @@ RUN for i in 1 2 3 4 5; do \
 # keine ocpp-Abhängigkeit und kommt ebenfalls aus apk (py3-websockets >= 14 nötig).
 RUN pip install --no-cache-dir --break-system-packages --no-deps ocpp==2.1.0 \
     && apk del --no-cache py3-pip \
-    && python3 -c "import ocpp, websockets, jsonschema; from websockets.asyncio.server import serve; print('ocpp OK', websockets.__version__)"
+    && python3 -c "import ocpp, jsonschema, websockets; from websockets.asyncio.server import serve; \
+assert int(websockets.__version__.split('.')[0]) >= 14, 'websockets %s zu alt (>=14 noetig)' % websockets.__version__; \
+print('ocpp OK, websockets', websockets.__version__)"
 
 # Addon-Dateien kopieren
 COPY main.py            /usr/local/bin/main.py

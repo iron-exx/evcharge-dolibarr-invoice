@@ -12,6 +12,7 @@ from websockets.asyncio.server import serve
 from websockets.exceptions import NegotiationError
 
 from ocpp_server.central_system import CentralSystemChargePoint, CentralSystemDeps
+from ocpp_server.redact import install as _install_redaction
 from ocpp_server.settings import OcppSettings
 
 _LOGGER = logging.getLogger(__name__)
@@ -20,15 +21,27 @@ _LOGGER = logging.getLogger(__name__)
 # Logger, fest auf INFO (Verbindungsfehler bleiben sichtbar), auch bei log_level DEBUG.
 _WS_LOGGER = logging.getLogger('websockets.expensecharge')
 _WS_LOGGER.setLevel(logging.INFO)
+_install_redaction(_WS_LOGGER)
 
 OCPP_PORT = 9000              # Container-Port; Host-Port wird in HA unter "Netzwerk" gesetzt
-SUBPROTOCOLS = ['ocpp1.6']
+OCPP_SUBPROTOCOL = 'ocpp1.6'
+_MAX_LOGGED_CP_ID = 64
 
 
 def charge_point_id_from_path(path: str) -> str:
     """Letztes Pfadsegment ohne Query: '/ocpp/CP001?x=1' → 'CP001'."""
     raw = urlsplit(path or '').path.rstrip('/')
     return unquote(raw.rsplit('/', 1)[-1]) if raw else ''
+
+
+def safe_cp_id_for_log(cp_id: str) -> str:
+    """Charge-Point-ID gefahrlos loggen.
+
+    Der Wert stammt aus dem URL-Pfad eines noch NICHT authentifizierten Peers.
+    Ohne Begrenzung könnte er das Addon-Log fluten, und mit einem Zeilenumbruch
+    könnte er gefälschte Logzeilen einschleusen. repr() maskiert Steuerzeichen.
+    """
+    return repr((cp_id or '')[:_MAX_LOGGED_CP_ID])
 
 
 def parse_basic_auth(header: Optional[str]) -> Optional[Tuple[str, str]]:
@@ -47,8 +60,8 @@ def select_subprotocol(connection, offered):
     Header nicht) und als 1.6 behandeln. Nur fremde Versionen → HTTP 400."""
     if not offered:
         return None
-    if 'ocpp1.6' in offered:
-        return 'ocpp1.6'
+    if OCPP_SUBPROTOCOL in offered:
+        return OCPP_SUBPROTOCOL
     raise NegotiationError(f"unsupported subprotocols: {', '.join(offered)}")
 
 
@@ -67,13 +80,15 @@ class OcppServer:
         cp_id = charge_point_id_from_path(request.path)
         cp_cfg = self._settings.find(cp_id)
         if cp_cfg is None:
-            _LOGGER.warning("Unbekannte Wallbox '%s' abgewiesen — in ocpp_charge_points eintragen", cp_id)
+            _LOGGER.warning("Unbekannte Wallbox %s abgewiesen — in ocpp_charge_points eintragen",
+                            safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.NOT_FOUND, "Unknown charge point\n")
         if cp_cfg.password:
             creds = parse_basic_auth(request.headers.get('Authorization'))
             # Security Whitepaper A00.FR.204: Benutzername MUSS die Charge-Point-ID sein
             if creds is None or not (_equal(creds[0], cp_cfg.id) and _equal(creds[1], cp_cfg.password)):
-                _LOGGER.warning("Wallbox '%s': falsche oder fehlende Zugangsdaten — abgewiesen", cp_id)
+                _LOGGER.warning("Wallbox %s: falsche oder fehlende Zugangsdaten — abgewiesen",
+                                safe_cp_id_for_log(cp_id))
                 response = connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
                 response.headers['WWW-Authenticate'] = 'Basic realm="ocpp", charset="UTF-8"'
                 return response
@@ -86,17 +101,19 @@ class OcppServer:
             await connection.close()
             return
         if connection.subprotocol is None:
-            _LOGGER.warning("Wallbox '%s' sendet kein Subprotocol — wird als OCPP 1.6 behandelt", cp_id)
+            _LOGGER.warning("Wallbox %s sendet kein Subprotocol — wird als OCPP 1.6 behandelt",
+                            safe_cp_id_for_log(cp_id))
         previous = self.connected.get(cp_id)
         if previous is not None:
-            _LOGGER.info("Wallbox '%s' verbindet sich neu — alte Verbindung wird geschlossen", cp_id)
+            _LOGGER.info("Wallbox %s verbindet sich neu — alte Verbindung wird geschlossen",
+                         safe_cp_id_for_log(cp_id))
             await previous.close()
         self.connected[cp_id] = connection
-        _LOGGER.info("Wallbox '%s' verbunden (%s)", cp_id, connection.remote_address)
+        _LOGGER.info("Wallbox %s verbunden (%s)", safe_cp_id_for_log(cp_id), connection.remote_address)
         try:
             await CentralSystemChargePoint(cp_cfg, connection, self._deps).start()
         except websockets.ConnectionClosed as exc:
-            _LOGGER.info("Wallbox '%s' getrennt (%s)", cp_id, exc)
+            _LOGGER.info("Wallbox %s getrennt (%s)", safe_cp_id_for_log(cp_id), exc)
         finally:
             if self.connected.get(cp_id) is connection:
                 del self.connected[cp_id]

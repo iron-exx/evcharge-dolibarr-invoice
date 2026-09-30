@@ -10,6 +10,7 @@ from ocpp.v16.enums import Action, AuthorizationStatus, DataTransferStatus, Regi
 
 from ocpp_server.id_tags import is_whitelisted, normalize_id_tag
 from ocpp_server.meter import extract_energy_kwh, to_local_naive_iso, wh_to_kwh
+from ocpp_server.redact import install as _install_redaction
 from ocpp_server.settings import ChargePointConfig
 from utils.hash import hash_rfid
 
@@ -20,6 +21,10 @@ _LOGGER = logging.getLogger(__name__)
 # eigener Protokoll-Logger, fest auf WARNING (Fehler bleiben sichtbar).
 _PROTOCOL_LOGGER = logging.getLogger('ocpp.expensecharge')
 _PROTOCOL_LOGGER.setLevel(logging.WARNING)
+# Der Level allein genügt nicht: Handler-Fehler und Schema-Verstöße loggt die
+# Bibliothek auf ERROR, inklusive kompletter Nachricht. Deshalb zusätzlich
+# inhaltsbasiert bereinigen.
+_install_redaction(_PROTOCOL_LOGGER)
 
 # Abgelehnte Starts bekommen transactionId 0 — eine spätere StopTransaction
 # mit dieser ID wird bestätigt, aber nie abgerechnet.

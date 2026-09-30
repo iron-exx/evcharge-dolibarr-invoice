@@ -202,3 +202,61 @@ def test_path_and_auth_parsing():
     assert parse_basic_auth("Basic !!!") is None
     assert parse_basic_auth("Bearer x") is None
     assert parse_basic_auth(None) is None
+
+
+# ---- D15: Karten-Klartext darf NIE ins Log (auch nicht auf Fehlerpfaden) ----
+
+async def test_id_tag_plaintext_never_logged_even_at_debug(env, caplog):
+    """D15 darf nicht nur am Log-Level hängen.
+
+    Dreht jemand die Protokoll-Logger ausdrücklich auf DEBUG — z.B. beim
+    späteren Verdrahten der Option log_level —, loggt die ocpp-Bibliothek jede
+    Nachricht samt idTag. Der Schutz muss am Inhalt hängen, nicht am Level.
+    """
+    import logging
+    for name in ("ocpp.expensecharge", "websockets.expensecharge"):
+        logging.getLogger(name).setLevel(logging.DEBUG)
+    caplog.set_level("DEBUG")
+    try:
+        async with connect_sim(env["port"], "CP1", PASSWORD) as cp:
+            await cp.call(call.Authorize(id_tag="c0ffee42"))
+            await cp.call(call.StartTransaction(connector_id=1, id_tag="efcd083e",
+                                                meter_start=0, timestamp=_ts(1)))
+        server_side = [r for r in caplog.records if r.name not in ("ocpp_sim", "websockets.client")]
+        text = "\n".join(r.getMessage() for r in server_side).upper()
+        assert "EFCD083E" not in text and "C0FFEE42" not in text
+    finally:
+        logging.getLogger("ocpp.expensecharge").setLevel(logging.WARNING)
+        logging.getLogger("websockets.expensecharge").setLevel(logging.INFO)
+
+
+async def test_id_tag_plaintext_never_logged_when_handler_raises(env, caplog):
+    """Wirft ein Handler, loggt die ocpp-Bibliothek die GANZE Nachricht auf
+    ERROR — inklusive idTag im Klartext. Genau dieser Pfad ist im Betrieb
+    normal (Schema-Verstoß der Wallbox, SQLite-Fehler) und muss sauber sein."""
+    def boom(*args, **kwargs):
+        raise RuntimeError("Simulierter Fehler im Handler")
+
+    env["deps"].session_manager.start_ocpp_transaction = boom
+    caplog.set_level("DEBUG")
+    async with connect_sim(env["port"], "CP1", PASSWORD) as cp:
+        try:
+            await cp.call(call.StartTransaction(connector_id=1, id_tag="EFCD083E",
+                                                meter_start=0, timestamp=_ts(1)))
+        except Exception:
+            pass  # CallError ist hier erwartet — geprüft wird das Log
+    server_side = [r for r in caplog.records if r.name not in ("ocpp_sim", "websockets.client")]
+    text = "\n".join(r.getMessage() for r in server_side).upper()
+    assert "EFCD083E" not in text, "idTag im Klartext auf dem Fehlerpfad"
+
+
+def test_charge_point_id_from_path_is_bounded_and_safe_to_log():
+    """Die Charge-Point-ID kommt von einem noch NICHT authentifizierten Peer und
+    landet direkt in einer Logzeile. Ohne Begrenzung kann er damit das Log
+    fluten; mit %0A kann er gefälschte Logzeilen einschleusen."""
+    from ocpp_server.server import _MAX_LOGGED_CP_ID, safe_cp_id_for_log
+    # +2 für die Anführungszeichen, die repr() setzt
+    assert len(safe_cp_id_for_log("A" * 500)) <= _MAX_LOGGED_CP_ID + 2
+    injected = safe_cp_id_for_log("CP1\nWARNUNG gefaelschte Zeile")
+    assert "\n" not in injected and "\\n" in injected
+    assert safe_cp_id_for_log("CP-001.a_2") == "'CP-001.a_2'"

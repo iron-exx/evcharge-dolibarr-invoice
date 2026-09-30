@@ -704,14 +704,29 @@ async def periodic_transmission():
             now = time.time()
             if (now - last_transmit) >= transmit_interval or _transmit_requested.is_set():
                 _transmit_requested.clear()
-                result = session_manager.transmit_completed_sessions(api_client)
-                if result["transmitted"] > 0:
-                    _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
-                if result["failed"] > 0:
-                    _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen", result["failed"])
-                    if not api_client.check_connection():
-                        _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
                 last_transmit = now
+                try:
+                    # In einen Thread auslagern: transmit_completed_sessions ist
+                    # synchrones requests mit Retry-Backoff und kann bei einem
+                    # hängenden Dolibarr Minuten dauern. Im OCPP-Betrieb ist dieser
+                    # Event-Loop derselbe, der die Wallbox bedient — er darf nicht
+                    # stehenbleiben, sonst läuft die Wallbox in ihren Timeout.
+                    result = await asyncio.to_thread(
+                        session_manager.transmit_completed_sessions, api_client)
+                    if result["transmitted"] > 0:
+                        _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
+                    if result["failed"] > 0:
+                        _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen",
+                                      result["failed"])
+                        if not await asyncio.to_thread(api_client.check_connection):
+                            _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    # Eine Ausnahme darf diesen Task nicht für den Rest der
+                    # Prozesslaufzeit beenden — im OCPP-Betrieb gibt es keinen
+                    # zweiten Auslöser für die Übertragung.
+                    _LOGGER.exception("Übertragung an Dolibarr fehlgeschlagen: %s", exc)
         await asyncio.sleep(1)
 
 

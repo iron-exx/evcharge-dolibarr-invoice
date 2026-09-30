@@ -25,6 +25,11 @@ from utils.hash import hash_rfid, verify_rfid_hash
 # oder Zählerfehler (z.B. kWh statt Wh gemeldet) und darf nicht abgerechnet werden.
 _MAX_PLAUSIBLE_KW = 50.0
 
+# Ab dieser Dauer gilt eine Session unter min_session_kwh nicht mehr als
+# "Karte gehalten, nie geladen", sondern als Zählerfehler → incomplete statt
+# still verworfen.
+_MAX_DISCARD_HOURS = 0.25
+
 DEBOUNCE_SECONDS = 7
 
 
@@ -632,11 +637,20 @@ class SessionManager:
         conn.row_factory = sqlite3.Row
         try:
             cur = conn.cursor()
+            # Ein echter Wiederholungsversuch trägt denselben Zeitstempel UND
+            # denselben Startzählerstand und kommt zeitnah. Eine Wallbox mit nie
+            # gestellter Uhr meldet dagegen für JEDE Ladung denselben Zeitstempel —
+            # ohne diese beiden Zusatzbedingungen bekäme jede weitere Ladung die ID
+            # der ersten und wäre nirgends erfasst.
             cur.execute('''
                 SELECT id FROM sessions
                 WHERE charge_point_id = ? AND connector_id = ? AND ocpp_start_timestamp = ?
+                  AND start_energy_kwh = ?
+                  AND created_at >= ?
+                ORDER BY id DESC
                 LIMIT 1
-            ''', (charge_point_id, connector_id, ocpp_start_timestamp))
+            ''', (charge_point_id, connector_id, ocpp_start_timestamp, meter_start_kwh,
+                  (datetime.now() - timedelta(days=1)).replace(microsecond=0).isoformat()))
             existing = cur.fetchone()
             if existing:
                 self._logger.info("StartTransaction wiederholt (%s/%s) — bestehende Session #%s",
@@ -768,12 +782,18 @@ def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time
     if end_kwh is None:
         return 'incomplete', None
     total_kwh = round(end_kwh - start_kwh, 3)
-    if total_kwh < min_kwh:
-        return 'discarded', max(0.0, total_kwh)
     try:
         hours = (datetime.fromisoformat(end_time) - datetime.fromisoformat(start_time)).total_seconds() / 3600.0
     except (TypeError, ValueError):
         hours = None
+    if total_kwh < min_kwh:
+        # 'discarded' meint: Karte kurz gehalten, nie wirklich geladen. Zog sich die
+        # Session dagegen über Stunden, ist fast nichts gezählt worden — typisch für
+        # eine Wallbox, die ihren Zähler in kWh statt in Wh meldet (Faktor 1000 zu
+        # klein). Das darf nicht still verworfen werden.
+        if hours is not None and hours >= _MAX_DISCARD_HOURS:
+            return 'incomplete', total_kwh
+        return 'discarded', max(0.0, total_kwh)
     if hours is not None and total_kwh > _MAX_PLAUSIBLE_KW * max(hours, 0.0) + 1.0:
         return 'incomplete', total_kwh
     return 'completed', total_kwh
