@@ -20,6 +20,11 @@ sys.path.insert(0, '/usr/local/bin')
 from utils.hash import hash_rfid, verify_rfid_hash
 
 # Debounce-Zeit in Sekunden (HA-07)
+# OCPP: Plausibilitätsgrenze für die mittlere Ladeleistung einer Session.
+# AC-Wallboxen liefern max. 22 kW; alles deutlich darüber ist ein Einheiten-
+# oder Zählerfehler (z.B. kWh statt Wh gemeldet) und darf nicht abgerechnet werden.
+_MAX_PLAUSIBLE_KW = 50.0
+
 DEBOUNCE_SECONDS = 7
 
 
@@ -86,6 +91,12 @@ class SessionManager:
             ('ALTER TABLE sessions ADD COLUMN transmitted_at TEXT', 'transmitted_at'),
             ('ALTER TABLE sessions ADD COLUMN start_energy_valid INTEGER NOT NULL DEFAULT 1', 'start_energy_valid'),
             ('ALTER TABLE sessions ADD COLUMN login TEXT', 'login'),
+            # OCPP-Betrieb (session_source: ocpp) — bei HA-Sensor-Sessions NULL
+            ('ALTER TABLE sessions ADD COLUMN charge_point_id TEXT', 'charge_point_id'),
+            ('ALTER TABLE sessions ADD COLUMN connector_id INTEGER', 'connector_id'),
+            ('ALTER TABLE sessions ADD COLUMN ocpp_start_timestamp TEXT', 'ocpp_start_timestamp'),
+            ('ALTER TABLE sessions ADD COLUMN last_meter_kwh REAL', 'last_meter_kwh'),
+            ('ALTER TABLE sessions ADD COLUMN stop_reason TEXT', 'stop_reason'),
         ]:
             try:
                 cursor.execute(col_ddl)
@@ -114,6 +125,12 @@ class SessionManager:
         # Index für status (für aktive Sessions)
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_status ON sessions(status)
+        ''')
+
+        # OCPP: Duplikaterkennung wiederholter StartTransaction-Nachrichten
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_ocpp_start
+            ON sessions(charge_point_id, connector_id, ocpp_start_timestamp)
         ''')
 
         conn.commit()
@@ -589,3 +606,174 @@ class SessionManager:
                          result["transmitted"], result["failed"])
 
         return result
+
+    # ------------------------------------------------------------------
+    # OCPP-Transaktionen (session_source: ocpp)
+    #
+    # Unterschiede zum HA-Sensor-Pfad:
+    #   - Mehrere Sessions gleichzeitig aktiv (je Wallbox/Connector eine).
+    #   - Die OCPP-transactionId IST die sessions.id (AUTOINCREMENT → eindeutig
+    #     über Neustarts hinweg). Zugriffe prüfen zusätzlich charge_point_id,
+    #     damit eine alte, gepufferte Nachricht nie eine fremde Session trifft.
+    #   - Zeitstempel und Zählerstände kommen von der Wallbox.
+    # ------------------------------------------------------------------
+
+    def start_ocpp_transaction(self, rfid_hex: str, wallbox_id: str, charge_point_id: str,
+                               connector_id: int, meter_start_kwh: float, start_time: str,
+                               ocpp_start_timestamp: str) -> int:
+        """Legt eine aktive OCPP-Session an und gibt ihre ID (= transactionId) zurück.
+
+        Idempotent: Wiederholt die Wallbox dieselbe StartTransaction (gleiche
+        Wallbox, gleicher Connector, gleicher Original-Zeitstempel), kommt die
+        bereits vergebene ID zurück. Läuft auf dem Connector noch eine ältere
+        aktive Session, hat die Wallbox deren Stop verloren → 'incomplete'.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT id FROM sessions
+                WHERE charge_point_id = ? AND connector_id = ? AND ocpp_start_timestamp = ?
+                LIMIT 1
+            ''', (charge_point_id, connector_id, ocpp_start_timestamp))
+            existing = cur.fetchone()
+            if existing:
+                self._logger.info("StartTransaction wiederholt (%s/%s) — bestehende Session #%s",
+                                  charge_point_id, connector_id, existing['id'])
+                return int(existing['id'])
+
+            cur.execute('''
+                UPDATE sessions SET status = 'incomplete', stop_reason = 'ocpp_superseded', end_time = ?
+                WHERE status = 'active' AND charge_point_id = ? AND connector_id = ?
+            ''', (start_time, charge_point_id, connector_id))
+            if cur.rowcount:
+                self._logger.warning("%s/%s: %d ältere aktive Session(s) ohne Stop → incomplete",
+                                     charge_point_id, connector_id, cur.rowcount)
+
+            created_at = datetime.now().replace(microsecond=0).isoformat()
+            cur.execute('''
+                INSERT INTO sessions (rfid_hash, wallbox_id, start_time, start_energy_kwh, status,
+                                      created_at, start_energy_valid, charge_point_id, connector_id,
+                                      ocpp_start_timestamp)
+                VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?)
+            ''', (hash_rfid(rfid_hex), wallbox_id, start_time, meter_start_kwh, created_at,
+                  charge_point_id, connector_id, ocpp_start_timestamp))
+            conn.commit()
+            session_id = int(cur.lastrowid)
+        finally:
+            conn.close()
+        self._logger.info("OCPP-Session gestartet: #%s (%s/%s, Zähler %.3f kWh)",
+                          session_id, charge_point_id, connector_id, meter_start_kwh)
+        return session_id
+
+    def update_ocpp_meter(self, transaction_id: int, charge_point_id: str, meter_kwh: float) -> bool:
+        """Merkt den letzten Zählerstand einer aktiven OCPP-Session (Fallback fürs Ende).
+
+        Nur monoton steigende Werte >= Startzählerstand werden übernommen.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                UPDATE sessions SET last_meter_kwh = ?
+                WHERE id = ? AND charge_point_id = ? AND status = 'active'
+                  AND ? >= start_energy_kwh
+                  AND (last_meter_kwh IS NULL OR ? >= last_meter_kwh)
+            ''', (meter_kwh, transaction_id, charge_point_id, meter_kwh, meter_kwh))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def stop_ocpp_transaction(self, transaction_id: int, charge_point_id: str,
+                              meter_stop_kwh: Optional[float], end_time: str, reason: str,
+                              min_kwh: float = 0.05) -> Optional[Dict[str, Any]]:
+        """Schließt eine OCPP-Session ab. Gibt das Session-Dict NUR bei 'completed' zurück.
+
+        - Unbekannte ID / fremde Wallbox → None (Aufrufer bestätigt trotzdem).
+        - Bereits abgeschlossen (wiederholte StopTransaction) → None, keine Änderung.
+        - meterStop fehlt, ist 0 oder kleiner als der Start → letzter MeterValue.
+        - Kein brauchbarer Endstand oder unplausible Leistung → 'incomplete'.
+        - < min_kwh → 'discarded'.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM sessions WHERE id = ? AND charge_point_id = ?",
+                        (transaction_id, charge_point_id))
+            row = cur.fetchone()
+            if row is None:
+                self._logger.warning("StopTransaction für unbekannte Transaktion %s (%s) — ignoriert",
+                                     transaction_id, charge_point_id)
+                return None
+            if row['status'] != 'active':
+                self._logger.info("StopTransaction für bereits abgeschlossene Session #%s — ignoriert",
+                                  transaction_id)
+                return None
+
+            start_kwh = float(row['start_energy_kwh'])
+            end_kwh = meter_stop_kwh
+            if end_kwh is None or end_kwh < start_kwh:
+                last = row['last_meter_kwh']
+                end_kwh = float(last) if last is not None and float(last) >= start_kwh else None
+            status, total_kwh = _classify_ocpp_energy(start_kwh, end_kwh, row['start_time'],
+                                                      end_time, min_kwh)
+            cur.execute('''
+                UPDATE sessions
+                SET end_time = ?, end_energy_kwh = ?, total_kwh = ?, status = ?, stop_reason = ?,
+                    transmitted_at = CASE WHEN ? = 'discarded' THEN ? ELSE transmitted_at END
+                WHERE id = ?
+            ''', (end_time, end_kwh, total_kwh, status, reason, status, end_time, transaction_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+        if status != 'completed':
+            self._logger.warning("OCPP-Session #%s: %s (Ende %s kWh, Grund %s)",
+                                 transaction_id, status, end_kwh, reason)
+            return None
+        self._logger.info("OCPP-Session #%s beendet: %.3f kWh (%s)", transaction_id, total_kwh, reason)
+        return {
+            'id': int(row['id']),
+            'rfid_hash': row['rfid_hash'],
+            'wallbox_id': row['wallbox_id'],
+            'start_time': row['start_time'],
+            'end_time': end_time,
+            'start_energy_kwh': start_kwh,
+            'end_energy_kwh': end_kwh,
+            'total_kwh': total_kwh,
+        }
+
+    def get_active_ocpp_sessions(self) -> list:
+        """Alle aktiven OCPP-Sessions (älteste zuerst)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT * FROM sessions
+                WHERE status = 'active' AND charge_point_id IS NOT NULL
+                ORDER BY start_time ASC
+            ''')
+            return [dict(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+
+def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time: str,
+                          end_time: str, min_kwh: float):
+    """(status, total_kwh) für eine abgeschlossene OCPP-Session."""
+    if end_kwh is None:
+        return 'incomplete', None
+    total_kwh = round(end_kwh - start_kwh, 3)
+    if total_kwh < min_kwh:
+        return 'discarded', max(0.0, total_kwh)
+    try:
+        hours = (datetime.fromisoformat(end_time) - datetime.fromisoformat(start_time)).total_seconds() / 3600.0
+    except (TypeError, ValueError):
+        hours = None
+    if hours is not None and total_kwh > _MAX_PLAUSIBLE_KW * max(hours, 0.0) + 1.0:
+        return 'incomplete', total_kwh
+    return 'completed', total_kwh
