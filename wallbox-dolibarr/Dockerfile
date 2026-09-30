@@ -9,7 +9,7 @@ ARG BUILD_REF
 
 LABEL \
   io.hass.name="ExpenseCharge" \
-  io.hass.description="Schreibt RFID-Ladevorgänge der Alfen Eve Wallbox direkt als Position in die Dolibarr-Spesenabrechnung des Mitarbeiters" \
+  io.hass.description="Schreibt RFID-Ladevorgänge von Wallboxen (HA-Sensoren oder OCPP 1.6J) direkt als Position in die Dolibarr-Spesenabrechnung des Mitarbeiters" \
   io.hass.type="addon" \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.arch="${BUILD_ARCH}" \
@@ -29,11 +29,21 @@ RUN for i in 1 2 3 4 5; do \
         python3 \
         py3-aiohttp \
         py3-requests \
+        py3-websockets \
+        py3-jsonschema \
+        py3-pip \
         sqlite-libs \
         ca-certificates \
       && break || { echo "apk fehlgeschlagen (Versuch $i) — warte 8s"; sleep 8; }; \
     done; \
     python3 -c "import aiohttp, requests, sqlite3; print('deps OK', __import__('sys').version)"
+
+# ocpp (MIT) gibt es nicht als apk-Paket → gepinnt per pip. --no-deps: einzige
+# Abhängigkeit jsonschema kommt oben aus apk (py3-jsonschema). websockets ist
+# keine ocpp-Abhängigkeit und kommt ebenfalls aus apk (py3-websockets >= 14 nötig).
+RUN pip install --no-cache-dir --break-system-packages --no-deps ocpp==2.1.0 \
+    && apk del --no-cache py3-pip \
+    && python3 -c "import ocpp, websockets, jsonschema; from websockets.asyncio.server import serve; print('ocpp OK', websockets.__version__)"
 
 # Addon-Dateien kopieren
 COPY main.py            /usr/local/bin/main.py
@@ -42,6 +52,7 @@ COPY session_manager.py /usr/local/bin/session_manager.py
 COPY web_server.py      /usr/local/bin/web_server.py
 COPY wallbox_profile.py /usr/local/bin/wallbox_profile.py
 COPY utils/             /usr/local/bin/utils/
+COPY ocpp_server/       /usr/local/bin/ocpp_server/
 RUN chmod a+x /usr/local/bin/main.py
 
 CMD ["/usr/bin/with-contenv", "python3", "/usr/local/bin/main.py"]

@@ -23,6 +23,39 @@ configuration:
     description: >-
       List of allowed RFID tag IDs (hex strings, e.g. "A1B2C3D4"). All
       other tags are ignored. Has no effect when auth_mode is "none".
+      In OCPP mode the comparison is case-insensitive; enter cards in
+      UPPERCASE in Dolibarr.
+
+  session_source:
+    name: "Data source / operating mode"
+    description: >-
+      "ha_sensors": charging sessions are derived from Home Assistant sensors
+      (wallbox_profile, sensor_*). "ocpp": ExpenseCharge acts as the OCPP
+      server itself — the wallbox connects directly and unknown cards are
+      rejected. In that case also fill in ocpp_charge_points and expose port
+      9000/tcp under "Network".
+
+  ocpp_charge_points:
+    name: "OCPP wallboxes"
+    description: >-
+      Only with session_source "ocpp". Per wallbox: id = charge point ID (last
+      part of the connection URL; an unknown ID is printed to the log after the
+      first connection attempt), optional password (basic auth, at least 16
+      characters; empty = no password, trusted LAN only) and optional
+      wallbox_id (name in Dolibarr, defaults to id).
+
+  ocpp_heartbeat_interval:
+    name: "OCPP heartbeat (seconds)"
+    description: >-
+      Interval announced to the wallbox when it registers (30–3600).
+
+  ocpp_apply_recommended_config:
+    name: "Apply recommended wallbox settings"
+    description: >-
+      When enabled, ExpenseCharge sets MeterValueSampleInterval=60,
+      MeterValuesSampledData=Energy.Active.Import.Register and
+      StopTransactionOnInvalidId=true after every wallbox boot. Off by
+      default — nothing is changed on the wallbox without consent.
 
   wallbox_profile:
     name: "Wallbox profile"
@@ -158,3 +191,6 @@ configuration:
     description: >-
       Connection details for the Dolibarr ERP used to automatically
       transmit completed sessions into the expense report.
+
+network:
+  9000/tcp: "OCPP central system (only with session_source: ocpp)"

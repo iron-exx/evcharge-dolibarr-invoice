@@ -1,6 +1,6 @@
 name: "ExpenseCharge"
 description: "ExpenseCharge — Ladevorgänge. Spesen. Abgerechnet."
-version: "1.9.2"
+version: "2.0.0"
 slug: "wallbox-dolibarr"
 init: false
 
@@ -16,6 +16,9 @@ homeassistant_api: true
 
 ports:
   8099/tcp: null
+  9000/tcp: null
+ports_description:
+  9000/tcp: "OCPP-Zentralserver (nur bei session_source: ocpp) — hier den Host-Port eintragen, z.B. 9000"
 
 options:
   log_level: "INFO"
@@ -33,6 +36,15 @@ options:
   # RFID Whitelist
   rfid_whitelist:
     - "EFCD083E"
+
+  # ── Betriebsart ────────────────────────────────────────────────────────
+  # "ha_sensors" → Ladevorgänge aus Home-Assistant-Sensoren (bisheriges Verhalten)
+  # "ocpp"       → Addon ist selbst OCPP-1.6J-Zentralserver, Wallbox verbindet
+  #                sich direkt (ws://<HA-IP>:<Port>/<Charge-Point-ID>)
+  session_source: "ha_sensors"
+  ocpp_charge_points: []
+  ocpp_heartbeat_interval: 300
+  ocpp_apply_recommended_config: false
 
   # ── Wallbox-Profil ─────────────────────────────────────────────────────
   # "alfen_eve"  → bewährtes Alfen-Verhalten, Auth-/Zustand-Logik fest verdrahtet
@@ -106,6 +118,13 @@ schema:
   wallbox_id: "str"
   rfid_whitelist:
     - "str"
+  session_source: "list(ha_sensors|ocpp)"
+  ocpp_charge_points:
+    - id: "str"
+      password: "password?"
+      wallbox_id: "str?"
+  ocpp_heartbeat_interval: "int(30,3600)"
+  ocpp_apply_recommended_config: "bool"
   wallbox_profile: "list(alfen_eve|custom)"
   sensor_rfid: "str"
   sensor_energy: "str"

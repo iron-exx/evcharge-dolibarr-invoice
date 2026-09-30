@@ -23,6 +23,40 @@ configuration:
     description: >-
       Liste erlaubter RFID-Tag-IDs (Hex-Strings, z.B. "A1B2C3D4"). Alle
       anderen Tags werden ignoriert. Bei auth_mode "none" wirkungslos.
+      Im OCPP-Betrieb ohne Groß-/Kleinschreibung verglichen; Karten in
+      Dolibarr in GROSSBUCHSTABEN eintragen.
+
+  session_source:
+    name: "Datenquelle / Betriebsart"
+    description: >-
+      "ha_sensors": Ladevorgänge werden aus Home-Assistant-Sensoren abgeleitet
+      (wallbox_profile, sensor_*). "ocpp": ExpenseCharge ist selbst der
+      OCPP-Server — die Wallbox verbindet sich direkt, unbekannte Karten werden
+      abgelehnt. Dann zusätzlich ocpp_charge_points ausfüllen und unter
+      "Netzwerk" den Port 9000/tcp freigeben.
+
+  ocpp_charge_points:
+    name: "OCPP-Wallboxen"
+    description: >-
+      Nur bei session_source "ocpp". Je Wallbox: id = Charge-Point-ID (letzter
+      Teil der Verbindungs-URL; eine unbekannte ID steht nach dem ersten
+      Verbindungsversuch im Log), optional password (Basic Auth, mind. 16
+      Zeichen; leer = ohne Passwort, nur im vertrauenswürdigen LAN) und
+      optional wallbox_id (Name in Dolibarr, Standard = id).
+
+  ocpp_heartbeat_interval:
+    name: "OCPP-Heartbeat (Sekunden)"
+    description: >-
+      Intervall, das der Wallbox beim Anmelden mitgeteilt wird (30–3600).
+
+  ocpp_apply_recommended_config:
+    name: "Empfohlene Wallbox-Einstellungen setzen"
+    description: >-
+      Wenn aktiv, setzt ExpenseCharge nach jedem Wallbox-Start
+      MeterValueSampleInterval=60,
+      MeterValuesSampledData=Energy.Active.Import.Register und
+      StopTransactionOnInvalidId=true. Standard aus — ohne Zustimmung wird
+      nichts an der Wallbox verändert.
 
   wallbox_profile:
     name: "Wallbox-Profil"
@@ -159,3 +193,6 @@ configuration:
     description: >-
       Verbindungsdaten zum Dolibarr-ERP für die automatische Übertragung
       abgeschlossener Sessions in die Spesenabrechnung.
+
+network:
+  9000/tcp: "OCPP-Zentralserver (nur bei session_source: ocpp)"
