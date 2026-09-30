@@ -323,13 +323,34 @@ def _month_name(month):
     return names[month - 1]
 
 
+def _charge_points_out(api_state):
+    """OCPP-Live-Zustand je Wallbox für live.json (leer im HA-Sensor-Betrieb)."""
+    out = []
+    for cp_id, st in sorted(((api_state or {}).get('charge_points') or {}).items()):
+        connectors = st.get('connectors') or {}
+        main_conn = connectors.get('1') or next(iter(connectors.values()), {})
+        out.append({
+            'id':                  cp_id,
+            'wallbox_id':          st.get('wallbox_id'),
+            'connected':           bool(st.get('connected')),
+            'vendor':              st.get('vendor'),
+            'model':               st.get('model'),
+            'status':              main_conn.get('status'),
+            'energy_kwh':          main_conn.get('energy_kwh'),
+            'last_seen':           st.get('last_seen'),
+            'last_rejected_id_tag': st.get('last_rejected_id_tag'),
+        })
+    return out
+
+
 def _db_active_sessions(db_path):
     """Alle laufenden Sessions (status='active') aus SQLite"""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, rfid_hash, wallbox_id, start_time, start_energy_kwh
+        SELECT id, rfid_hash, wallbox_id, start_time, start_energy_kwh,
+               charge_point_id, last_meter_kwh
         FROM sessions
         WHERE status = 'active'
         ORDER BY start_time ASC
@@ -485,6 +506,9 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     var sensor=data.sensor||{};
     var hasSessions=sessions.length>0;
     var hasSensor=sensor.current_energy!==null && sensor.current_energy!==undefined;
+    // OCPP-Betrieb: Wallbox-Liste statt HA-Sensor
+    var cps=data.charge_points||[];
+    if(cps.length){ hasSensor=true; }
 
     // Verbindungs-Status im Header
     var cDot=document.getElementById('conn-dot');
@@ -500,7 +524,7 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     if(!hasSessions && !hasSensor){ card.style.display='none'; return; }
     card.style.display='block';
 
-    var state=sensor.wallbox_state||'';
+    var state=sensor.wallbox_state||(cps.length?(cps[0].status||''):'');
     var sl=state.toLowerCase();
     var stateColor='var(--muted)';
     if(sl.indexOf('charging')>=0 && sl.indexOf('stopped')<0) stateColor='var(--success)';
@@ -511,7 +535,23 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     document.getElementById('live-dot').style.background=stateColor;
 
     var banner='';
-    if(hasSensor){
+    if(cps.length){
+      banner=cps.map(function(c){
+        var st=c.connected?(c.status||'verbunden'):'getrennt';
+        var col=!c.connected?'var(--error)'
+          :(String(c.status||'').toLowerCase()==='charging'?'var(--success)':'var(--warn)');
+        var kwh=(c.energy_kwh!==null && c.energy_kwh!==undefined)?c.energy_kwh.toFixed(3)+' kWh':'\u2014';
+        var rej=c.last_rejected_id_tag
+          ? '<div style="font-size:11px;color:var(--error)">Abgelehnte Karte: <code>'
+            +esc(c.last_rejected_id_tag)+'</code> \u2014 in rfid_whitelist und Dolibarr eintragen</div>'
+          : '';
+        return '<div>'+esc(c.wallbox_id||c.id)+' \u00b7 Z\u00e4hler: <strong>'+kwh+'</strong>'
+          +'<span style="background:'+col+';color:#0F172A;padding:1px 7px;border-radius:3px;'
+          +'font-size:11px;font-weight:700;margin-left:6px">'+esc(st)+'</span>'
+          +'<span style="float:right;color:var(--dim);font-size:11px">'+esc(c.last_seen||'')+'</span>'
+          +rej+'</div>';
+      }).join('');
+    } else if(hasSensor){
       var chip=state
         ? '<span style="background:'+stateColor+';color:#0F172A;padding:1px 7px;'
           +'border-radius:3px;font-size:11px;font-weight:700;margin-left:6px">'
@@ -843,7 +883,11 @@ def create_app(session_manager, config, api_state):
             elapsed      = (now - start_dt).total_seconds()
             start_energy = float(s.get('start_energy_kwh') or 0.0)
             current_kwh  = None
-            if current_energy is not None and current_energy >= start_energy:
+            if s.get('charge_point_id'):
+                # OCPP: eigener Zählerstand je Session (letzter MeterValue)
+                if s.get('last_meter_kwh') is not None:
+                    current_kwh = max(0.0, float(s['last_meter_kwh']) - start_energy)
+            elif current_energy is not None and current_energy >= start_energy:
                 current_kwh = current_energy - start_energy
             sessions_out.append({
                 'id':              s['id'],
@@ -862,6 +906,7 @@ def create_app(session_manager, config, api_state):
                 'last_update':    last_update,
             },
             'sessions': sessions_out,
+            'charge_points': _charge_points_out(api_state),
         })
 
     app = web.Application()
