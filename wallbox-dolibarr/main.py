@@ -46,6 +46,9 @@ from api_client import WallboxApiClient
 
 # Ingress Web-Server für manuelle Sessions
 from web_server import start_web_server
+from ocpp_server.central_system import CentralSystemDeps
+from ocpp_server.server import OCPP_PORT, OcppServer
+from ocpp_server.settings import resolve_ocpp_settings
 
 # Logging Setup (D-17, D-20)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -92,6 +95,10 @@ _last_energy_change_time = None  # float (time.time()) oder None
 
 # Platzhalter-Identität für auth_mode='none' (keine Autorisierungspflicht).
 _NO_AUTH_RFID = "NO_AUTH_REQUIRED"
+
+# Sofort-Übertragung anstoßen (z.B. nach einer OCPP-StopTransaction), statt
+# auf das nächste transmit_interval zu warten.
+_transmit_requested = asyncio.Event()
 
 
 def _parse_energy(value):
@@ -688,6 +695,94 @@ async def check_startup_session():
             _pending_auth = {'rfid_hex': rfid_val, 'time': time.time()}
 
 
+async def periodic_transmission():
+    """Periodische (und auf Anforderung sofortige) Übertragung an Dolibarr."""
+    last_transmit = 0.0
+    transmit_interval = current_config.get("api", {}).get("transmit_interval", 300)
+    while True:
+        if api_client:
+            now = time.time()
+            if (now - last_transmit) >= transmit_interval or _transmit_requested.is_set():
+                _transmit_requested.clear()
+                result = session_manager.transmit_completed_sessions(api_client)
+                if result["transmitted"] > 0:
+                    _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
+                if result["failed"] > 0:
+                    _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen", result["failed"])
+                    if not api_client.check_connection():
+                        _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
+                last_transmit = now
+        await asyncio.sleep(1)
+
+
+def build_ocpp_server(settings) -> OcppServer:
+    """Verdrahtet den OCPP-Server mit SessionManager, Whitelist und Live-Zustand."""
+    api_state['charge_points'] = {}
+    deps = CentralSystemDeps(
+        session_manager=session_manager,
+        whitelist=current_config.get('rfid_whitelist', []),
+        live=api_state['charge_points'],
+        min_kwh=float(current_config.get('min_session_kwh', 0.05)),
+        heartbeat_interval=settings.heartbeat_interval,
+        apply_recommended_config=settings.apply_recommended_config,
+        on_session_completed=lambda _session: _transmit_requested.set(),
+    )
+    return OcppServer(settings, deps)
+
+
+def ocpp_overdue_sessions(max_hours: float, now: Optional[datetime] = None) -> list:
+    """Aktive OCPP-Sessions, die länger als max_hours laufen."""
+    now = now or datetime.now()
+    overdue = []
+    for s in session_manager.get_active_ocpp_sessions():
+        try:
+            age_h = (now - datetime.fromisoformat(s['start_time'])).total_seconds() / 3600.0
+        except (TypeError, ValueError):
+            continue
+        if age_h >= max_hours:
+            overdue.append(s)
+    return overdue
+
+
+async def ocpp_stale_session_guard():
+    """Im OCPP-Betrieb beendet NUR die Wallbox eine Session (StopTransaction,
+    ggf. verspätet aus ihrer Offline-Queue). Die Wache warnt daher nur einmal
+    je Session, statt sie mit einem geratenen Zählerstand zu schließen."""
+    max_hours = float(current_config.get("max_session_hours", 24))
+    warned = set()
+    while True:
+        await asyncio.sleep(300)
+        try:
+            for s in ocpp_overdue_sessions(max_hours):
+                if s['id'] not in warned:
+                    warned.add(s['id'])
+                    _LOGGER.warning("OCPP-Session #%s (%s) läuft seit über %.0f h — Wallbox erreichbar? "
+                                    "Wird erst mit ihrer StopTransaction abgeschlossen.",
+                                    s['id'], s['charge_point_id'], max_hours)
+        except Exception as exc:  # Wache darf nie den Loop killen
+            _LOGGER.warning("ocpp_stale_session_guard Fehler: %s", exc)
+
+
+async def run_ocpp_mode(settings) -> None:
+    """Betriebsart session_source=ocpp: kein HA-Websocket, die Wallbox verbindet sich direkt."""
+    if not settings.charge_points:
+        _LOGGER.error("session_source=ocpp, aber keine ocpp_charge_points konfiguriert — "
+                      "jede Wallbox wird abgewiesen")
+    server = build_ocpp_server(settings)
+    await server.start('0.0.0.0', OCPP_PORT)
+    # KEINE Restart-Recovery wie im HA-Pfad: offene Sessions bleiben 'active' —
+    # die Wallbox liefert StopTransaction aus ihrer Offline-Queue nach.
+    open_sessions = session_manager.get_active_ocpp_sessions()
+    if open_sessions:
+        _LOGGER.info("%d laufende OCPP-Session(s) aus der Zeit vor dem Neustart — warte auf StopTransaction",
+                     len(open_sessions))
+    asyncio.create_task(ocpp_stale_session_guard())
+    if api_client:
+        asyncio.create_task(periodic_transmission())
+    asyncio.create_task(start_web_server(session_manager, current_config, api_state, port=8099))
+    await server.serve_forever()
+
+
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
     global session_manager, current_config, ha_ws, api_client, api_state, profile
@@ -741,6 +836,13 @@ async def main():
     else:
         _LOGGER.info("Keine Dolibarr API-Konfiguration — Addon läuft ohne API-Transmission")
 
+    ocpp_settings = resolve_ocpp_settings(current_config)
+    if ocpp_settings.enabled:
+        _LOGGER.info("Betriebsart: OCPP-Zentralserver (%d Wallbox(en) konfiguriert)",
+                     len(ocpp_settings.charge_points))
+        await run_ocpp_mode(ocpp_settings)
+        return
+
     # HA-Token ermitteln: SUPERVISOR_TOKEN hat Vorrang, Fallback auf ha_token aus Konfiguration
     supervisor_token = os.getenv('SUPERVISOR_TOKEN', '')
     config_ha_token  = current_config.get('ha_token', '')
@@ -764,34 +866,6 @@ async def main():
 
         # Prüfen ob aktive Session nach Neustart existiert (PER-01)
         await check_startup_session()
-
-        # Periodic API Transmission als Hintergrund-Task (Task 4 - Fix: subscribe_entities blockiert)
-        async def periodic_transmission():
-            """Periodische API-Übertragung als Hintergrund-Task"""
-            import time
-            last_transmit = 0
-            transmit_interval = current_config.get("api", {}).get("transmit_interval", 300)
-
-            while True:
-                if api_client:
-                    current_time = time.time()
-                    if (current_time - last_transmit) >= transmit_interval:
-                        result = session_manager.transmit_completed_sessions(api_client)
-
-                        if result["transmitted"] > 0:
-                            _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
-
-                        if result["failed"] > 0:
-                            _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen", result["failed"])
-                            # Bei Fehlern: Verbindung neu testen
-                            if not api_client.check_connection():
-                                _LOGGER.warning("API-Verbindung verloren - deaktiviere temporär")
-                                # api_client auf None setzen deaktiviert weitere Versuche
-                                # TODO: Reconnect-Logik in Zukunft
-
-                        last_transmit = current_time
-
-                await asyncio.sleep(1)
 
         # Sicherung gegen hängende Sessions: Eine Session endet normalerweise
         # beim Abstecken (state=Available). Falls dieses Event ausbleibt (z.B.
