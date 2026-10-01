@@ -48,6 +48,7 @@ from api_client import WallboxApiClient
 from web_server import start_web_server
 from tag_release import TagReleaser
 from tag_learning import LearnBuffer
+from app_settings import resolve_app_settings
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
@@ -69,7 +70,7 @@ _RFID_NONE_VALUES = {'', 'no tag', 'no_tag', 'none', 'unknown', 'unavailable'}
 # "memoriert" wird, falls erst SPÄTER der Charging-Power-On-State kommt.
 # Alfen brauchst manchmal Minuten zwischen NFC-Auth und tatsächlichem
 # Charging-Start (Auto wird erst danach angesteckt).
-_PENDING_AUTH_WINDOW = 600  # 10 Minuten
+_PENDING_AUTH_WINDOW = 600  # 10 Minuten (Vorgabe; app_settings.pending_auth_window gilt)
 
 # Letzte erkannte autorisierte RFID — wird vom Charging-State-Trigger
 # als Fallback verwendet, falls der RFID-Event verpasst wurde.
@@ -113,6 +114,10 @@ _tag_releaser = None
 # Lernmodus: hält zuletzt vorgehaltene Karten flüchtig im Speicher, damit der
 # Admin sie in der Oberfläche benennen und einordnen kann. Standardmäßig aus.
 learn_buffer = LearnBuffer()
+
+# Wirksame Betriebsparameter. Wird in main() aus der Konfiguration ersetzt;
+# die Vorgaben hier entsprechen dem bisherigen Verhalten.
+app_settings = resolve_app_settings({})
 
 
 def _parse_energy(value):
@@ -829,7 +834,7 @@ async def run_ocpp_mode(settings) -> None:
         _LOGGER.error("session_source=ocpp, aber keine ocpp_charge_points konfiguriert — "
                       "jede Wallbox wird abgewiesen")
     server = build_ocpp_server(settings)
-    await server.start('0.0.0.0', OCPP_PORT)
+    await server.start(app_settings.ocpp_bind, app_settings.ocpp_port)
     # KEINE Restart-Recovery wie im HA-Pfad: offene Sessions bleiben 'active' —
     # die Wallbox liefert StopTransaction aus ihrer Offline-Queue nach.
     open_sessions = session_manager.get_active_ocpp_sessions()
@@ -839,7 +844,9 @@ async def run_ocpp_mode(settings) -> None:
     asyncio.create_task(ocpp_stale_session_guard())
     if api_client:
         asyncio.create_task(periodic_transmission())
-    asyncio.create_task(start_web_server(session_manager, current_config, api_state, port=8099))
+    asyncio.create_task(start_web_server(session_manager, current_config, api_state,
+                                         port=app_settings.web_port,
+                                         host=app_settings.web_bind))
     await server.serve_forever()
 
 
@@ -874,7 +881,9 @@ async def run_modbus_mode(settings) -> None:
     asyncio.create_task(stale_session_guard_modbus())
     if api_client:
         asyncio.create_task(periodic_transmission())
-    asyncio.create_task(start_web_server(session_manager, current_config, api_state, port=8099))
+    asyncio.create_task(start_web_server(session_manager, current_config, api_state,
+                                         port=app_settings.web_port,
+                                         host=app_settings.web_bind))
     await poller.run()
 
 
@@ -905,14 +914,31 @@ async def stale_session_guard_modbus():
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
     global session_manager, current_config, ha_ws, api_client, api_state, profile, _tag_releaser
+    global app_settings
 
     _LOGGER.info("Wallbox-Dolibarr Addon startet...")
 
-    # Session Manager initialisieren (PER-01)
-    session_manager = SessionManager(db_path="/data/sessions.db")
-
-    # Konfiguration laden (für Whitelist und API)
+    # Konfiguration ZUERST laden — daraus kommen auch die Betriebsparameter.
     current_config = load_config()
+
+    # Betriebsparameter auflösen und das Protokoll-Level anwenden. Die Option
+    # log_level existierte bisher, wurde aber nie ausgewertet: der Level stand
+    # fest auf INFO. LOG_LEVEL in der Umgebung hat weiterhin Vorrang.
+    app_settings = resolve_app_settings(current_config)
+    logging.getLogger().setLevel(getattr(logging, app_settings.log_level, logging.INFO))
+    if app_settings.log_level != LOG_LEVEL:
+        _LOGGER.info("Protokoll-Detailgrad: %s", app_settings.log_level)
+
+    learn_buffer.ttl_seconds = app_settings.learn_ttl_seconds
+    learn_buffer.max_entries = app_settings.learn_max_entries
+
+    # Session Manager initialisieren (PER-01)
+    session_manager = SessionManager(
+        db_path="/data/sessions.db",
+        debounce_seconds=app_settings.debounce_seconds,
+        max_plausible_kw=app_settings.max_plausible_kw,
+        max_discard_hours=app_settings.max_discard_hours,
+    )
 
     # Wallbox-Profil auflösen (Auth-/Zustand-Modus, Sensoren, Schwellenwerte).
     # 'alfen_eve' (Default) liefert exakt das bewährte, bisherige Verhalten.
@@ -931,6 +957,8 @@ async def main():
         'client': None,
         # Lernmodus für die Oberfläche (Ein/Aus + flüchtig erkannte Karten)
         'learn': learn_buffer,
+        # Wirksame Betriebsparameter für den System-Tab
+        'settings': app_settings,
         'current_energy': None,    # aktueller Energiezähler-Stand in kWh
         'wallbox_state': None,     # 'Charging' / 'Idle' / 'Stopped' / None
         'last_update': None,       # ISO-Timestamp der letzten Sensor-Aktualisierung
@@ -943,7 +971,9 @@ async def main():
             api_client = WallboxApiClient(
                 base_url=dolibarr_url,
                 api_token=api_token,
-                timeout=30
+                timeout=app_settings.api_timeout,
+                retries=app_settings.api_retries,
+                backoff=app_settings.api_backoff,
             )
             if api_client.check_connection():
                 api_state['client'] = api_client
@@ -1079,7 +1109,9 @@ async def main():
             _LOGGER.info("API-Transmission Hintergrund-Task gestartet")
 
         # Ingress Web-Server für manuelle Ladevorgänge starten
-        asyncio.create_task(start_web_server(session_manager, current_config, api_state, port=8099))
+        asyncio.create_task(start_web_server(session_manager, current_config, api_state,
+                                         port=app_settings.web_port,
+                                         host=app_settings.web_bind))
         _LOGGER.info("Ingress Web-Server Task gestartet (Port 8099)")
 
         # Sensor-Updates abonnieren (event-basiert, D-10) - blockiert bis zur Unterbrechung

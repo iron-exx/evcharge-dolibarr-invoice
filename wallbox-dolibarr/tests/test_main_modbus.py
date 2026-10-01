@@ -77,7 +77,7 @@ async def test_main_modbus_mode_skips_home_assistant(wired, monkeypatch):
     def forbidden(*a, **kw):
         raise AssertionError("HA-Websocket darf im Modbus-Betrieb nicht genutzt werden")
 
-    monkeypatch.setattr(main, "SessionManager", lambda db_path: wired)
+    monkeypatch.setattr(main, "SessionManager", lambda db_path, **kw: wired)
     monkeypatch.setattr(main, "load_config", lambda: dict(CONFIG))
     monkeypatch.setattr(main, "run_modbus_mode", fake_run)
     monkeypatch.setattr(main, "HomeAssistantWebsocket", forbidden)
@@ -90,7 +90,7 @@ async def test_broken_modbus_config_stops_the_addon_with_a_clear_error(wired, mo
     """Eine unbrauchbare Registerkarte darf nicht mit Standardwerten
     weiterlaufen — sonst würden 0 kWh abgerechnet."""
     bad = {"session_source": "modbus", "modbus": {"host": "x", "registers": {}}}
-    monkeypatch.setattr(main, "SessionManager", lambda db_path: wired)
+    monkeypatch.setattr(main, "SessionManager", lambda db_path, **kw: wired)
     monkeypatch.setattr(main, "load_config", lambda: dict(bad))
     monkeypatch.setattr(main, "HomeAssistantWebsocket",
                         lambda *a, **kw: pytest.fail("kein HA im Modbus-Betrieb"))

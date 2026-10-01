@@ -80,7 +80,7 @@ async def test_missing_token_names_the_standalone_option(tmp_path, monkeypatch, 
         def __init__(self, *a, **kw):
             raise AssertionError("ohne Token darf kein HA-Websocket aufgebaut werden")
 
-    monkeypatch.setattr(main, "SessionManager", lambda db_path: SessionManager(db_path=str(tmp_path / "s.db")))
+    monkeypatch.setattr(main, "SessionManager", lambda db_path, **kw: SessionManager(db_path=str(tmp_path / "s.db")))
     monkeypatch.setattr(main, "load_config", lambda: {"rfid_whitelist": []})
     monkeypatch.setattr(main, "HomeAssistantWebsocket", _NoWs)
     monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)

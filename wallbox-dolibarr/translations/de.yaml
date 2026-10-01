@@ -197,6 +197,97 @@ configuration:
       beendet. Großzügig wählen, damit normale Lastmanagement-Pausen
       nicht betroffen sind (Default 24h).
 
+  web_port:
+    name: "Port der Web-UI"
+    description: >-
+      Port, auf dem die Weboberfläche lauscht (im Container). Im Addon-Betrieb
+      gleich dem Ingress-Port 8099 lassen.
+
+  web_bind:
+    name: "Bind-Adresse der Web-UI"
+    description: >-
+      An welche Adresse die Weboberfläche gebunden wird. Im Addon-Betrieb
+      0.0.0.0, der Ingress greift von außen zu. Standalone ohne Reverse-Proxy
+      besser 127.0.0.1 — dort gibt es keinen HA-Login als Schutz.
+
+  ocpp_port:
+    name: "Port des OCPP-Servers"
+    description: >-
+      Container-Port, auf dem der OCPP-Server lauscht. Der von außen erreichbare
+      Port wird in HA unter Netzwerk zugeordnet.
+
+  ocpp_bind:
+    name: "Bind-Adresse des OCPP-Servers"
+    description: >-
+      An welche Adresse der OCPP-Server gebunden wird. 0.0.0.0 lassen, damit die
+      Wallbox ihn erreicht.
+
+  debounce_seconds:
+    name: "RFID-Entprellung (Sekunden)"
+    description: >-
+      Sperrzeit nach einem gelesenen Tag, damit eine Doppellesung nicht zwei
+      Vorgänge auslöst. Höher setzen, wenn der Leser denselben Tag mehrfach
+      meldet.
+
+  max_plausible_kw:
+    name: "Plausibilitätsgrenze Leistung (kW)"
+    description: >-
+      Liegt die mittlere Leistung einer Ladung darüber, gilt sie als Zähler-
+      oder Einheitenfehler und wird NICHT abgerechnet, sondern als unvollständig
+      markiert. 50 passt für AC-Wallboxen mit maximal 22 kW. Fuer eine
+      DC-Ladesäule anheben, sonst landet jede schnelle Ladung in der manuellen
+      Prüfung.
+
+  max_discard_hours:
+    name: "Kurz-Session-Fenster (Stunden)"
+    description: >-
+      Bleibt eine Ladung unter min_session_kwh, gilt sie bis zu dieser Dauer als
+      Karte gehalten, nie geladen und wird verworfen. Dauert sie länger, ist es
+      ein Zählerfehler und sie wird als unvollständig sichtbar — typisch bei
+      einer Wallbox, die kWh statt Wh meldet.
+
+  pending_auth_window:
+    name: "Gültigkeit vorgehaltener Karte (Sekunden)"
+    description: >-
+      So lange bleibt ein vorgehaltener Tag für einen späteren Ladebeginn
+      gültig. Wichtig bei Lastmanagement, das den Start um Stunden verschieben
+      kann.
+
+  api_timeout:
+    name: "Dolibarr-Zeitlimit (Sekunden)"
+    description: >-
+      Zeitlimit je Anfrage an Dolibarr. Bei langsamer Verbindung erhöhen.
+
+  api_retries:
+    name: "Dolibarr-Wiederholungen"
+    description: >-
+      Wiederholungen bei Überlast oder Serverfehler (429/5xx). 0 schaltet sie
+      ab. Nicht übertragene Ladungen bleiben ohnehin im lokalen Puffer und
+      werden später erneut versucht.
+
+  api_backoff:
+    name: "Dolibarr-Wartefaktor"
+    description: >-
+      Wartezeit zwischen den Wiederholungen, wachsend. Vorsicht: hohe Werte mal
+      viele Wiederholungen summieren sich zu Minuten.
+
+  learn_ttl_seconds:
+    name: "Lernmodus: Klartext-Haltezeit (Sekunden)"
+    description: >-
+      So lange bleibt die Klartext-ID einer erkannten Karte im Arbeitsspeicher
+      sichtbar, damit du sie benennen kannst. Danach verschwindet sie.
+      Gespeichert wird nie der Klartext, nur der Hash.
+
+  learn_max_entries:
+    name: "Lernmodus: max. Karten in der Liste"
+    description: >-
+      Wie viele erkannte Karten der Lernmodus gleichzeitig vorhält.
+
+  trend_days:
+    name: "Tagesstreifen: Fenster (Tage)"
+    description: >-
+      Wie viele Tage der Streifen auf der Startseite zeigt.
+
   api:
     name: "Dolibarr-API-Konfiguration"
     description: >-

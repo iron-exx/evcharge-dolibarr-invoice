@@ -92,6 +92,10 @@ html, body {
   font-size: 10.5px; color: var(--dim); margin-top: 5px;
 }
 .spark-empty { font-size: 12.5px; color: var(--dim); padding: 10px 0 2px; }
+/* ── System-Tabelle ── */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.row-changed td:first-child { box-shadow: inset 2px 0 0 var(--primary); padding-left: 9px; }
+.tbl-wrap { overflow-x: auto; }
 /* ── Kennzahlen ── */
 .kpis {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
@@ -284,6 +288,19 @@ _ICO_CHECK = (
     ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
     '<polyline points="20 6 9 17 4 12"/></svg>'
 )
+_ICO_GEAR = (
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    '<circle cx="12" cy="12" r="3"/>'
+    '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 '
+    '1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 '
+    '19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 '
+    '15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 '
+    '0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6 1.65 1.65 0 0 0 '
+    '10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 '
+    '2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.31.22.65.22 1v.09c0 .36-.08.7-.22 1z"/>'
+    '</svg>'
+)
 _ICO_CARD = (
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
     ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
@@ -315,6 +332,10 @@ def _base(active, content, base_href=''):
         f'<a href="tags" class="{"active" if active == "tags" else ""}">'
         f'{_ICO_CARD} Karten</a>'
     )
+    nav_sys = (
+        f'<a href="system" class="{"active" if active == "system" else ""}">'
+        f'{_ICO_GEAR} System</a>'
+    )
     return f"""<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -337,7 +358,7 @@ def _base(active, content, base_href=''):
     <span id="conn-lbl">—</span>
   </div>
 </header>
-<nav class="nav">{nav_form}{nav_hist}{nav_tags}</nav>
+<nav class="nav">{nav_form}{nav_hist}{nav_tags}{nav_sys}</nav>
 <div class="page">{content}</div>
 </body>
 </html>"""
@@ -489,10 +510,11 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     month_lbl = f'{_month_name(now.month)} {now.year}'
     warn_cls  = 'stat-warn' if stats['pending'] > 0 else 'stat-ok'
     try:
-        recent = _db_recent(session_manager.db_path, days=14)
+        trend_days = int((config or {}).get('trend_days') or 14)
+        recent = _db_recent(session_manager.db_path, days=trend_days)
     except Exception:
         recent = []
-    trend_html = _build_trend_strip(recent, days=14)
+    trend_html = _build_trend_strip(recent, days=int((config or {}).get('trend_days') or 14))
 
     billed_kwh = max(0.0, stats['kwh'] - stats.get('private_kwh', 0.0))
     pending_cls = 'kpi-warn' if stats['pending'] > 0 else ''
@@ -990,6 +1012,152 @@ def _build_trend_strip(rows, days=14, today=None):
             f'<span>{active} von {days} Tagen geladen</span><span>heute</span></div></div>')
 
 
+# Konfigurationsschlüssel, deren WERT niemals in die Oberfläche darf.
+_SECRET_KEYS = ('api_token', 'ha_token', 'password', 'token', 'secret')
+
+
+def _diagnostics(session_manager, config, api_state):
+    """Betriebszustand für den System-Tab. Enthält bewusst keine Geheimnisse."""
+    import os
+    import platform
+    import sqlite3
+
+    db = session_manager.db_path
+    counts = {}
+    total = 0
+    try:
+        conn = sqlite3.connect(db)
+        for status, n in conn.execute("SELECT status, COUNT(*) FROM sessions GROUP BY status"):
+            counts[status or '—'] = n
+            total += n
+        untransmitted = conn.execute(
+            "SELECT COUNT(*) FROM sessions WHERE transmitted_at IS NULL "
+            "AND status NOT IN ('active','discarded','incomplete','private')").fetchone()[0]
+        tags = conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0]
+        conn.close()
+    except Exception as exc:
+        counts, untransmitted, tags = {'Fehler': str(exc)[:60]}, 0, 0
+
+    try:
+        size_mb = os.path.getsize(db) / (1024 * 1024)
+    except OSError:
+        size_mb = 0.0
+
+    api = (config or {}).get('api') or {}
+    return {
+        'session_source': (config or {}).get('session_source', 'ha_sensors'),
+        'wallbox_profile': (config or {}).get('wallbox_profile', 'alfen_eve'),
+        'wallbox_id': (config or {}).get('wallbox_id', '—'),
+        'python': platform.python_version(),
+        'database': db,
+        'database_mb': round(size_mb, 2),
+        'sessions': total,
+        'sessions_by_status': counts,
+        'untransmitted': untransmitted,
+        'tags': tags,
+        # Nur die URL — das Token wird NIE ausgegeben.
+        'dolibarr_url': api.get('dolibarr_url') or '—',
+        'dolibarr_connected': bool((api_state or {}).get('client')),
+        'charge_points': len((config or {}).get('ocpp_charge_points') or []),
+        'learn_enabled': bool(getattr((api_state or {}).get('learn'), 'enabled', False)),
+    }
+
+
+def _settings_rows(api_state):
+    settings = (api_state or {}).get('settings')
+    if settings is None:
+        from app_settings import resolve_app_settings
+        settings = resolve_app_settings({})
+    return settings.as_rows()
+
+
+def _build_system_page(session_manager, config, api_state=None, base_href=''):
+    rows = _settings_rows(api_state)
+    diag = _diagnostics(session_manager, config, api_state)
+    changed = sum(1 for r in rows if r['changed'])
+
+    def fmt(value):
+        if isinstance(value, float):
+            return f'{value:g}'
+        return html.escape(str(value))
+
+    setting_rows = ''.join(
+        '<tr{cls}><td>{label}<div class="td-dim mono">{key}</div></td>'
+        '<td class="td-bold mono">{value}</td>'
+        '<td class="td-dim mono">{default}</td>'
+        '<td>{badge}</td></tr>'.format(
+            cls=' class="row-changed"' if r['changed'] else '',
+            label=html.escape(r['label']), key=html.escape(r['key']),
+            value=fmt(r['value']), default=fmt(r['default']),
+            badge=('<span class="badge b-pend">abweichend</span>' if r['changed']
+                   else '<span class="td-dim">Standard</span>'))
+        for r in rows)
+
+    status_rows = ''.join(
+        f'<tr><td>{html.escape(str(k))}</td><td class="td-bold">{v}</td></tr>'
+        for k, v in sorted(diag['sessions_by_status'].items()))
+
+    dol = ('<span class="badge b-ok">verbunden</span>' if diag['dolibarr_connected']
+           else '<span class="badge b-pend">nicht verbunden</span>')
+
+    content = f"""
+<div class="card">
+  <div class="card-title">{_ICO_GEAR} Betrieb</div>
+  <div class="kpis kpis-3">
+    <div class="kpi"><div class="kpi-lbl">Datenquelle</div>
+      <div class="kpi-val" style="font-size:16px">{html.escape(diag['session_source'])}</div>
+      <div class="kpi-sub">Profil {html.escape(diag['wallbox_profile'])}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Sessions</div>
+      <div class="kpi-val">{diag['sessions']}</div>
+      <div class="kpi-sub">{diag['untransmitted']} noch nicht übertragen</div></div>
+    <div class="kpi"><div class="kpi-lbl">Karten</div>
+      <div class="kpi-val">{diag['tags']}</div>
+      <div class="kpi-sub">Lernmodus {'an' if diag['learn_enabled'] else 'aus'}</div></div>
+  </div>
+
+  <table>
+    <tbody>
+      <tr><td>Dolibarr</td><td class="td-bold">{html.escape(diag['dolibarr_url'])}</td>
+          <td>{dol}</td></tr>
+      <tr><td>Wallbox-ID in Dolibarr</td>
+          <td class="td-bold mono">{html.escape(diag['wallbox_id'])}</td><td></td></tr>
+      <tr><td>OCPP-Wallboxen konfiguriert</td>
+          <td class="td-bold">{diag['charge_points']}</td><td></td></tr>
+      <tr><td>Datenbank</td><td class="td-bold mono">{html.escape(diag['database'])}</td>
+          <td class="td-dim">{diag['database_mb']} MB</td></tr>
+      <tr><td>Python</td><td class="td-bold mono">{html.escape(diag['python'])}</td>
+          <td></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-title">{_ICO_HIST} Sessions nach Status</div>
+  <table><tbody>{status_rows or '<tr><td class="td-dim">noch keine</td><td></td></tr>'}</tbody></table>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              gap:12px;flex-wrap:wrap;margin-bottom:11px">
+    <div class="card-title" style="margin:0">{_ICO_GEAR} Wirksame Einstellungen</div>
+    <span class="td-dim" style="font-size:12px">{changed} von {len(rows)} abweichend</span>
+  </div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:11px">
+    Hier steht, was <strong>tatsächlich gilt</strong> — inklusive Werten, die aus einem
+    unzulässigen Bereich zurechtgezogen wurden. Geändert wird die Konfiguration nicht
+    hier, sondern in der Addon-Konfiguration bzw. in <code class="mono">data/options.json</code>.
+    Nach einer Änderung ist ein Neustart nötig.
+  </div>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Einstellung</th><th>Wirksam</th><th>Standard</th><th></th></tr></thead>
+    <tbody>{setting_rows}</tbody>
+  </table>
+  </div>
+</div>"""
+    return _base('system', content, base_href=base_href)
+
+
 def _build_daily_chart(rows, year, month):
     """Gestapeltes Tagesbalken-Diagramm als Inline-SVG.
 
@@ -1417,6 +1585,19 @@ def create_app(session_manager, config, api_state):
     def _wants_json(request):
         return (request.content_type or '').startswith('application/json')
 
+    async def handle_system_page(request):
+        base_href = request.headers.get('X-Ingress-Path', '')
+        return web.Response(
+            content_type='text/html', charset='utf-8',
+            text=_build_system_page(session_manager, config, api_state=api_state,
+                                    base_href=base_href))
+
+    async def handle_system_json(request):
+        return web.json_response({
+            'settings': _settings_rows(api_state),
+            'diagnostics': _diagnostics(session_manager, config, api_state),
+        })
+
     async def handle_tags_page(request):
         base_href = request.headers.get('X-Ingress-Path', '')
         return web.Response(
@@ -1487,6 +1668,8 @@ def create_app(session_manager, config, api_state):
     app.router.add_get('/live.json', handle_live_json)
     app.router.add_get('/history',   handle_history)
     app.router.add_get('/export',    handle_export)
+    app.router.add_get('/system',       handle_system_page)
+    app.router.add_get('/system.json',  handle_system_json)
     app.router.add_get('/tags',         handle_tags_page)
     app.router.add_get('/tags.json',    handle_tags_json)
     app.router.add_post('/learn',       handle_learn)
@@ -1495,10 +1678,10 @@ def create_app(session_manager, config, api_state):
     return app
 
 
-async def start_web_server(session_manager, config, api_state, port=8099):
+async def start_web_server(session_manager, config, api_state, port=8099, host='0.0.0.0'):
     app    = create_app(session_manager, config, api_state)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, host, port)
     await site.start()
-    _LOGGER.info("Ingress Web-Server gestartet auf Port %d", port)
+    _LOGGER.info("Web-Server gestartet auf %s:%d", host, port)

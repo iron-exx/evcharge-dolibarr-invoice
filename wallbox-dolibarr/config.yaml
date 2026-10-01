@@ -109,6 +109,22 @@ options:
   # (großzügig, damit normale Lastmanagement-Pausen NICHT betroffen sind)
   max_session_hours: 24
 
+  # ── Betriebsparameter (Vorgaben = bisheriges Verhalten) ────────────────
+  web_port: 8099
+  web_bind: "0.0.0.0"
+  ocpp_port: 9000
+  ocpp_bind: "0.0.0.0"
+  debounce_seconds: 7
+  max_plausible_kw: 50
+  max_discard_hours: 0.25
+  pending_auth_window: 600
+  api_timeout: 30
+  api_retries: 5
+  api_backoff: 0.5
+  learn_ttl_seconds: 600
+  learn_max_entries: 10
+  trend_days: 14
+
   # API-Konfiguration für Dolibarr-Übertragung
   api:
     dolibarr_url: "https://dolibarr.example.com"
@@ -151,6 +167,20 @@ schema:
   rfid_hold_seconds: "float(0,60)"
   min_session_kwh: "float"
   max_session_hours: "float"
+  web_port: "int(1,65535)"
+  web_bind: "str"
+  ocpp_port: "int(1,65535)"
+  ocpp_bind: "str"
+  debounce_seconds: "float(1,120)"
+  max_plausible_kw: "float(1,400)"
+  max_discard_hours: "float(0,24)"
+  pending_auth_window: "int(10,86400)"
+  api_timeout: "int(5,300)"
+  api_retries: "int(0,10)"
+  api_backoff: "float(0,30)"
+  learn_ttl_seconds: "float(30,3600)"
+  learn_max_entries: "int(1,100)"
+  trend_days: "int(1,90)"
   api:
     dolibarr_url: "str"
     api_token: "str"

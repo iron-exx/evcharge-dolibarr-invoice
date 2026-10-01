@@ -48,7 +48,8 @@ class WallboxApiClient:
     - RFID nur als SHA-256 Hash (SEC-03, API-05)
     """
 
-    def __init__(self, base_url: str, api_token: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_token: str, timeout: int = 30,
+                 retries: int = 5, backoff: float = 0.5):
         """
         Initialisiert den API-Client
 
@@ -56,6 +57,8 @@ class WallboxApiClient:
             base_url: Dolibarr Basis-URL (z.B. https://dolibarr.example.com)
             api_token: DOLAPIKEY Token für Authentifizierung
             timeout: Timeout für API-Calls in Sekunden
+            retries: Wiederholungen bei 429/5xx (0 = keine)
+            backoff: Wartefaktor zwischen den Wiederholungen
         """
         self.base_url = base_url.rstrip('/')
         self.api_token = api_token
@@ -69,8 +72,8 @@ class WallboxApiClient:
 
         # Retry-Strategie (D-02: Konservativ)
         retry_strategy = Retry(
-            total=5,                          # Max. 5 Retries
-            backoff_factor=0.5,                 # Initial 0.5s (wird zu min 1s)
+            total=retries,                      # einstellbar (Standard 5)
+            backoff_factor=backoff,             # einstellbar (Standard 0.5s)
             status_forcelist=[429, 500, 502, 503, 504],  # Retryable Errors
             allowed_methods=["POST"],           # Nur POST retry (idempotent für unsere API)
             raise_on_status=False               # Nicht bei Status-Fehlern werfen

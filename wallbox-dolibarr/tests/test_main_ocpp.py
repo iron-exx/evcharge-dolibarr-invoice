@@ -61,7 +61,7 @@ async def test_main_ocpp_mode_skips_home_assistant_and_recovery(ocpp_env, monkey
     def forbidden(*a, **kw):
         raise AssertionError("HA-Websocket darf im OCPP-Betrieb nicht genutzt werden")
 
-    monkeypatch.setattr(main, "SessionManager", lambda db_path: ocpp_env)
+    monkeypatch.setattr(main, "SessionManager", lambda db_path, **kw: ocpp_env)
     monkeypatch.setattr(main, "load_config", lambda: dict(CONFIG))
     monkeypatch.setattr(main, "run_ocpp_mode", fake_run)
     monkeypatch.setattr(main, "HomeAssistantWebsocket", forbidden)

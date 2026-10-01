@@ -194,6 +194,94 @@ configuration:
       generously so normal load-management pauses aren't affected
       (default 24h).
 
+  web_port:
+    name: "Web UI port"
+    description: >-
+      Port the web interface listens on (inside the container). Leave at the
+      ingress port 8099 when running as an addon.
+
+  web_bind:
+    name: "Web UI bind address"
+    description: >-
+      Address the web interface binds to. Use 0.0.0.0 as an addon; ingress
+      connects from outside. Standalone without a reverse proxy, prefer
+      127.0.0.1 — there is no HA login protecting it there.
+
+  ocpp_port:
+    name: "OCPP server port"
+    description: >-
+      Container port the OCPP server listens on. The externally reachable port
+      is mapped under Network in HA.
+
+  ocpp_bind:
+    name: "OCPP server bind address"
+    description: >-
+      Address the OCPP server binds to. Keep 0.0.0.0 so the wallbox can reach
+      it.
+
+  debounce_seconds:
+    name: "RFID debounce (seconds)"
+    description: >-
+      Lockout after a tag is read so a double read cannot trigger two sessions.
+      Raise it if the reader reports the same tag repeatedly.
+
+  max_plausible_kw:
+    name: "Power plausibility limit (kW)"
+    description: >-
+      If a session average power exceeds this, it is treated as a meter or unit
+      error and is NOT billed but marked incomplete. 50 suits AC wallboxes at up
+      to 22 kW. Raise it for a DC charger, otherwise every fast charge ends up
+      needing manual review.
+
+  max_discard_hours:
+    name: "Short-session window (hours)"
+    description: >-
+      If a session stays below min_session_kwh, it counts as card held but never
+      charged up to this duration and is discarded. Longer than that it is a
+      meter fault and becomes visible as incomplete — typical for a wallbox
+      reporting kWh instead of Wh.
+
+  pending_auth_window:
+    name: "Held-card validity (seconds)"
+    description: >-
+      How long a presented tag stays valid for a later charge start. Matters
+      with load management, which can delay the start by hours.
+
+  api_timeout:
+    name: "Dolibarr timeout (seconds)"
+    description: >-
+      Timeout per request to Dolibarr. Increase on a slow connection.
+
+  api_retries:
+    name: "Dolibarr retries"
+    description: >-
+      Retries on overload or server error (429/5xx). 0 disables them.
+      Untransmitted sessions stay in the local buffer and are retried later
+      anyway.
+
+  api_backoff:
+    name: "Dolibarr backoff factor"
+    description: >-
+      Growing wait between retries. Careful: a high value times many retries
+      adds up to minutes.
+
+  learn_ttl_seconds:
+    name: "Learn mode: plaintext hold time (seconds)"
+    description: >-
+      How long a detected card plaintext ID stays visible in memory so you can
+      name it. It disappears afterwards. Only the hash is ever stored, never the
+      plaintext.
+
+  learn_max_entries:
+    name: "Learn mode: max cards listed"
+    description: >-
+      How many detected cards the learn mode keeps at once.
+
+  trend_days:
+    name: "Trend strip: window (days)"
+    description: >-
+      How many days the strip on the start page covers.
+
   api:
     name: "Dolibarr API configuration"
     description: >-

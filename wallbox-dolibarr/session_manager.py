@@ -68,8 +68,20 @@ def format_iso8601(dt: Any) -> str:
 class SessionManager:
     """Verwaltet Lade-Sessions in SQLite"""
 
-    def __init__(self, db_path: str = "/data/sessions.db"):
+    def __init__(self, db_path: str = "/data/sessions.db",
+                 debounce_seconds: float = DEBOUNCE_SECONDS,
+                 max_plausible_kw: float = _MAX_PLAUSIBLE_KW,
+                 max_discard_hours: float = _MAX_DISCARD_HOURS):
+        """Die drei Grenzwerte sind einstellbar, weil sie je Anlage abweichen:
+        eine DC-Säule überschreitet 50 kW, ein träger Leser braucht eine
+        andere Entprellung, und wie lange eine Session unter min_kwh noch als
+        "Karte gehalten" statt als Zählerfehler gilt, hängt vom Standort ab.
+        Die Vorgaben entsprechen genau dem bisherigen Verhalten.
+        """
         self.db_path = db_path
+        self.debounce_seconds = float(debounce_seconds)
+        self.max_plausible_kw = float(max_plausible_kw)
+        self.max_discard_hours = float(max_discard_hours)
         self._logger = logging.getLogger(__name__)  # muss vor _init_database() stehen
         self._last_rfid_time: Dict[str, float] = {}  # Für Debouncing
         self._init_database()
@@ -211,9 +223,9 @@ class SessionManager:
 
         if rfid_hash in self._last_rfid_time:
             time_diff = current_time - self._last_rfid_time[rfid_hash]
-            if time_diff < DEBOUNCE_SECONDS:
+            if time_diff < self.debounce_seconds:
                 self._logger.debug("RFID debounced: %s (%.1fs < %ds)",
-                                rfid_hash[:16], time_diff, DEBOUNCE_SECONDS)
+                                rfid_hash[:16], time_diff, self.debounce_seconds)
                 return False
 
         self._last_rfid_time[rfid_hash] = current_time
@@ -785,8 +797,10 @@ class SessionManager:
             if end_kwh is None or end_kwh < start_kwh:
                 last = row['last_meter_kwh']
                 end_kwh = float(last) if last is not None and float(last) >= start_kwh else None
-            status, total_kwh = _classify_ocpp_energy(start_kwh, end_kwh, row['start_time'],
-                                                      end_time, min_kwh)
+            status, total_kwh = _classify_ocpp_energy(
+                start_kwh, end_kwh, row['start_time'], end_time, min_kwh,
+                max_plausible_kw=self.max_plausible_kw,
+                max_discard_hours=self.max_discard_hours)
             cur.execute('''
                 UPDATE sessions
                 SET end_time = ?, end_energy_kwh = ?, total_kwh = ?, status = ?, stop_reason = ?,
@@ -959,7 +973,9 @@ class SessionManager:
         return tag is None or tag['mode'] != TAG_MODE_PRIVATE
 
 def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time: str,
-                          end_time: str, min_kwh: float):
+                          end_time: str, min_kwh: float,
+                          max_plausible_kw: float = _MAX_PLAUSIBLE_KW,
+                          max_discard_hours: float = _MAX_DISCARD_HOURS):
     """(status, total_kwh) für eine abgeschlossene OCPP-Session."""
     if end_kwh is None:
         return 'incomplete', None
@@ -973,9 +989,9 @@ def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time
         # Session dagegen über Stunden, ist fast nichts gezählt worden — typisch für
         # eine Wallbox, die ihren Zähler in kWh statt in Wh meldet (Faktor 1000 zu
         # klein). Das darf nicht still verworfen werden.
-        if hours is not None and hours >= _MAX_DISCARD_HOURS:
+        if hours is not None and hours >= max_discard_hours:
             return 'incomplete', total_kwh
         return 'discarded', max(0.0, total_kwh)
-    if hours is not None and total_kwh > _MAX_PLAUSIBLE_KW * max(hours, 0.0) + 1.0:
+    if hours is not None and total_kwh > max_plausible_kw * max(hours, 0.0) + 1.0:
         return 'incomplete', total_kwh
     return 'completed', total_kwh
