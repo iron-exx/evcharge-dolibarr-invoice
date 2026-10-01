@@ -30,6 +30,17 @@ _MAX_PLAUSIBLE_KW = 50.0
 # still verworfen.
 _MAX_DISCARD_HOURS = 0.25
 
+# Einordnung einer Karte in der Tag-Verwaltung des Addons:
+#   business — Ladung wird an Dolibarr übertragen (Regelfall)
+#   private  — Ladung bleibt LOKAL, erreicht Dolibarr nie
+#   unknown  — nur erkannt, noch nicht eingeordnet: darf NICHT laden
+TAG_MODE_BUSINESS = 'business'
+TAG_MODE_PRIVATE = 'private'
+TAG_MODE_UNKNOWN = 'unknown'
+VALID_TAG_MODES = (TAG_MODE_BUSINESS, TAG_MODE_PRIVATE, TAG_MODE_UNKNOWN)
+# Welche Einordnungen überhaupt laden dürfen.
+_TAG_MODES_MAY_CHARGE = (TAG_MODE_BUSINESS, TAG_MODE_PRIVATE)
+
 DEBOUNCE_SECONDS = 7
 
 
@@ -122,6 +133,21 @@ class SessionManager:
             )
         ''')
 
+        # Tag-Verwaltung des Addons: benannte Karten mit Einordnung.
+        # Bewusst NUR der Hash — der RFID-Klartext wird nie persistiert
+        # (DSGVO, Datensparsamkeit). Der vom Admin vergebene Name ersetzt ihn
+        # für die Wiedererkennung in der Oberfläche.
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tags (
+                rfid_hash  TEXT PRIMARY KEY,
+                label      TEXT,
+                mode       TEXT NOT NULL DEFAULT 'unknown',
+                first_seen TEXT NOT NULL,
+                last_seen  TEXT NOT NULL,
+                seen_count INTEGER NOT NULL DEFAULT 1
+            )
+        ''')
+
         # Index für rfid_hash (DB-02 Vorbereitung)
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_rfid_hash ON sessions(rfid_hash)
@@ -204,11 +230,24 @@ class SessionManager:
         Returns:
             True wenn RFID autorisiert ist
         """
-        if not whitelist:
-            self._logger.warning("Keine RFID-Whitelist konfiguriert")
+        rfid_hash = hash_rfid(rfid_hex)
+
+        # Zuerst die Tag-Verwaltung: wer dort eingeordnet ist, darf laden —
+        # auch ohne Eintrag in der Konfigurations-Whitelist. Das ist der Zweck
+        # des Lernmodus: Karten freischalten, ohne die Konfiguration anzufassen.
+        tag = self._get_tag_by_hash(rfid_hash)
+        if tag is not None:
+            if tag['mode'] in _TAG_MODES_MAY_CHARGE:
+                self._logger.info("RFID autorisiert über Tag-Verwaltung (%s): %s...",
+                                  tag['mode'], rfid_hash[:16])
+                return True
+            self._logger.warning("RFID erkannt, aber noch nicht eingeordnet: %s... "
+                                 "— in der Oberfläche benennen und einordnen", rfid_hash[:16])
             return False
 
-        rfid_hash = hash_rfid(rfid_hex)
+        if not whitelist:
+            self._logger.warning("Keine RFID-Whitelist konfiguriert und kein Tag-Eintrag")
+            return False
 
         # Whitelist enthält Hex-Strings, wir vergleichen Hashes
         for whitelisted_rfid in whitelist:
@@ -568,12 +607,26 @@ class SessionManager:
         result = {
             "transmitted": 0,
             "failed": 0,
+            "private": 0,
             "errors": []
         }
 
         for row in rows:
             session_id = row[0]
             login = row[6] if len(row) > 6 else None
+
+            # ABRECHNUNGSSCHRANKE: Eine als privat eingeordnete Karte darf
+            # Dolibarr nie erreichen. Geprüft wird die AKTUELLE Einordnung,
+            # damit ein nachträgliches Umstellen auf privat eine noch nicht
+            # übertragene Ladung auch noch stoppt.
+            tag = self._get_tag_by_hash(row[1])
+            if tag is not None and tag['mode'] == TAG_MODE_PRIVATE:
+                cursor.execute("UPDATE sessions SET status = 'private' WHERE id = ?",
+                               (session_id,))
+                result["private"] += 1
+                self._logger.info("Session %s ist privat — bleibt lokal, keine Übertragung",
+                                  session_id)
+                continue
             session_data = {
                 "wallbox_id": row[2],
                 "start_time": format_iso8601(row[3]),
@@ -775,6 +828,121 @@ class SessionManager:
         finally:
             conn.close()
 
+    # ------------------------------------------------------------------
+    # Tag-Verwaltung des Addons
+    #
+    # Zweck: Karten in der Oberfläche benennen und einordnen, ohne die
+    # Konfiguration anzufassen — und entscheiden, ob eine Ladung abgerechnet
+    # (business) oder nur lokal protokolliert wird (private).
+    #
+    # Gespeichert wird ausschließlich der SHA-256-Hash. Der RFID-Klartext
+    # erscheint nur flüchtig im Lernmodus der Oberfläche, nie in der Datenbank.
+    #
+    # Abgrenzung zu Dolibarr: dort steht, WER der Mitarbeiter ist
+    # (llx_wallbox_rfid). Hier steht, OB überhaupt übertragen wird.
+    # ------------------------------------------------------------------
+
+    def _get_tag_by_hash(self, rfid_hash: str) -> Optional[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT * FROM tags WHERE rfid_hash = ?", (rfid_hash,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def get_tag(self, rfid_hex: str) -> Optional[Dict[str, Any]]:
+        """Tag-Eintrag zu einer Karte (Klartext-ID) oder None."""
+        return self._get_tag_by_hash(hash_rfid(rfid_hex))
+
+    def upsert_tag(self, rfid_hex: str, label: Optional[str] = None,
+                   mode: str = TAG_MODE_UNKNOWN) -> Dict[str, Any]:
+        """Legt einen Tag an oder aktualisiert Name und Einordnung.
+
+        Ein bestehender Eintrag behält first_seen und seen_count; nur Name,
+        Einordnung und last_seen werden überschrieben.
+        """
+        if mode not in VALID_TAG_MODES:
+            raise ValueError(f"mode muss {VALID_TAG_MODES} sein, war {mode!r}")
+        rfid_hash = hash_rfid(rfid_hex)
+        now = datetime.now().replace(microsecond=0).isoformat()
+        clean_label = (label or '').strip() or None
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute('''
+                INSERT INTO tags (rfid_hash, label, mode, first_seen, last_seen, seen_count)
+                VALUES (?, ?, ?, ?, ?, 1)
+                ON CONFLICT(rfid_hash) DO UPDATE SET
+                    label = excluded.label,
+                    mode = excluded.mode,
+                    last_seen = excluded.last_seen
+            ''', (rfid_hash, clean_label, mode, now, now))
+            conn.commit()
+        finally:
+            conn.close()
+        self._logger.info("Tag %s... gespeichert: %s (%s)", rfid_hash[:16], clean_label, mode)
+        return self._get_tag_by_hash(rfid_hash)
+
+    def note_tag_seen(self, rfid_hex: str) -> Dict[str, Any]:
+        """Hält fest, dass eine Karte vorgehalten wurde — für den Lernmodus.
+
+        Eine unbekannte Karte landet als 'unknown' in der Liste (darf damit
+        NICHT laden) und wartet darauf, benannt und eingeordnet zu werden.
+        Eine bekannte Karte behält Name und Einordnung.
+        """
+        rfid_hash = hash_rfid(rfid_hex)
+        now = datetime.now().replace(microsecond=0).isoformat()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute('''
+                INSERT INTO tags (rfid_hash, label, mode, first_seen, last_seen, seen_count)
+                VALUES (?, NULL, ?, ?, ?, 1)
+                ON CONFLICT(rfid_hash) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    seen_count = tags.seen_count + 1
+            ''', (rfid_hash, TAG_MODE_UNKNOWN, now, now))
+            conn.commit()
+        finally:
+            conn.close()
+        return self._get_tag_by_hash(rfid_hash)
+
+    def list_tags(self) -> list:
+        """Alle bekannten Tags: noch nicht eingeordnete zuerst, dann nach Name."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute('''
+                SELECT * FROM tags
+                ORDER BY CASE mode WHEN 'unknown' THEN 0 ELSE 1 END,
+                         label IS NULL, label, last_seen DESC
+            ''').fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def delete_tag(self, rfid_hex: str) -> bool:
+        """Entfernt einen Tag. True, wenn es ihn gab.
+
+        Danach darf die Karte nur noch laden, wenn sie in der
+        Konfigurations-Whitelist steht.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute("DELETE FROM tags WHERE rfid_hash = ?", (hash_rfid(rfid_hex),))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def is_tag_billable(self, rfid_hash: str) -> bool:
+        """Darf eine Ladung mit diesem Hash abgerechnet werden?
+
+        Ohne Eintrag: ja — bestehende Installationen pflegen nur die
+        Konfigurations-Whitelist und müssen weiter abrechnen.
+        """
+        tag = self._get_tag_by_hash(rfid_hash)
+        return tag is None or tag['mode'] != TAG_MODE_PRIVATE
 
 def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time: str,
                           end_time: str, min_kwh: float):
