@@ -288,6 +288,21 @@ configuration:
     description: >-
       Wie viele Tage der Streifen auf der Startseite zeigt.
 
+  alfen:
+    name: "Alfen HTTPS-API"
+    description: >-
+      Nur bei session_source "alfen_http". host ist IP, Hostname oder
+      vollständige URL der Wallbox; ohne Schema wird https angenommen. username
+      und password sind die Zugangsdaten der Wallbox selbst, nicht die von
+      Dolibarr. verify_ssl bleibt aus, weil Alfen ein selbst ausgestelltes
+      Zertifikat liefert. poll_interval ist der Takt fuer Zähler und Zustand
+      (Anzeige), transaction_interval der Takt fuer das Transaktions-Log
+      (Abrechnung) — das Log zu lesen ist teuer, darum seltener. param_energy
+      und param_state sind die Alfen-Parameter-IDs, Standard 2221_22 und 2501_1
+      fuer Steckdose 1. fixed_login ordnet alle Ladungen einem Dolibarr-Benutzer
+      zu, falls keine Karte vorliegt. Eine unvollständige Konfiguration lässt
+      das Addon absichtlich nicht starten.
+
   modbus:
     name: "Modbus TCP"
     description: >-

@@ -282,6 +282,20 @@ configuration:
     description: >-
       How many days the strip on the start page covers.
 
+  alfen:
+    name: "Alfen HTTPS API"
+    description: >-
+      Only with session_source "alfen_http". host is the wallbox IP, hostname or
+      full URL; https is assumed when no scheme is given. username and password
+      are the wallbox credentials, not the Dolibarr ones. verify_ssl stays off
+      because Alfen ships a self-signed certificate. poll_interval is the rate
+      for meter and state (display), transaction_interval the rate for the
+      transaction log (billing) — reading the log is expensive, hence less
+      often. param_energy and param_state are the Alfen parameter IDs,
+      defaulting to 2221_22 and 2501_1 for socket 1. fixed_login attributes
+      every session to one Dolibarr user when no card is available. An
+      incomplete configuration deliberately stops the addon from starting.
+
   modbus:
     name: "Modbus TCP"
     description: >-

@@ -54,6 +54,8 @@ from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
 from modbus_source.poller import ModbusPoller
 from modbus_source.settings import ModbusConfigError, resolve_modbus_settings
+from alfen_source.runner import AlfenRunner
+from alfen_source.settings import AlfenConfigError, resolve_alfen_settings
 
 # Logging Setup (D-17, D-20)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -911,6 +913,36 @@ async def stale_session_guard_modbus():
             _LOGGER.warning("stale_session_guard_modbus Fehler: %s", exc)
 
 
+def build_alfen_runner(settings) -> AlfenRunner:
+    """Verdrahtet die Alfen-HTTP-Quelle.
+
+    Anders als bei Modbus und dem HA-Pfad läuft hier NICHTS über
+    sensor_callback: die Abrechnung kommt aus dem Transaktions-Log der Wallbox,
+    das fertige Ladevorgänge mit Karte, Zeitpunkt und Zählerständen liefert.
+    Würde zusätzlich der abgefragte Zustand in die Sensor-Logik laufen, entstünde
+    jede Ladung zweimal.
+    """
+    return AlfenRunner(
+        settings,
+        session_manager=session_manager,
+        api_state=api_state,
+        wallbox_id=current_config.get('wallbox_id', 'alfen_eve'),
+        whitelist=current_config.get('rfid_whitelist', []),
+        on_tag_seen=note_tag_seen,
+    )
+
+
+async def run_alfen_mode(settings) -> None:
+    """Betriebsart session_source=alfen_http: kein HA, kein OCPP-Backend-Slot."""
+    runner = build_alfen_runner(settings)
+    if api_client:
+        asyncio.create_task(periodic_transmission())
+    asyncio.create_task(start_web_server(session_manager, current_config, api_state,
+                                         port=app_settings.web_port,
+                                         host=app_settings.web_bind))
+    await runner.run()
+
+
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
     global session_manager, current_config, ha_ws, api_client, api_state, profile, _tag_releaser
@@ -992,6 +1024,14 @@ async def main():
         _tag_releaser = TagReleaser(hold_seconds=hold)
         _LOGGER.info("RFID-Haltezeit aktiv: Tag wird %.1f s nach Erkennung selbst "
                      "auf \"kein Tag\" zurückgesetzt", hold)
+
+    # Alfen über die HTTPS-API: liefert Zähler, Zustand UND die Karte, ohne
+    # Home Assistant und ohne den OCPP-Backend-Slot der Wallbox zu belegen.
+    alfen_settings = resolve_alfen_settings(current_config)
+    if alfen_settings.enabled:
+        _LOGGER.info("Betriebsart: Alfen HTTP (%s)", alfen_settings.base_url)
+        await run_alfen_mode(alfen_settings)
+        return
 
     # Modbus TCP: die Wallbox wird direkt abgefragt. Eine unbrauchbare
     # Registerkarte lässt das Addon absichtlich abbrechen, statt mit

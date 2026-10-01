@@ -157,6 +157,93 @@ verändert.
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
   abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.
 
+## Betriebsart Alfen HTTPS-API (`alfen_http`)
+
+Für Alfen-Wallboxen die **beste** Quelle: sie liefert Zählerstand, Zustand **und
+die Karte** — ohne Home Assistant, ohne HACS-Integration und **ohne den
+OCPP-Backend-Slot der Wallbox zu belegen**.
+
+### Warum sie den anderen Quellen vorzuziehen ist
+
+Der entscheidende Unterschied: das **Transaktions-Log** der Wallbox enthält
+*fertige* Ladevorgänge mit Transaktions-ID, Start- und Endzeitpunkt, beiden
+Zählerständen und der Karte. ExpenseCharge errät also nichts aus Sensorflanken,
+sondern importiert eine abgeschlossene Transaktion — genau wie im OCPP-Betrieb.
+
+| | `ha_sensors` | `alfen_http` | `ocpp` | `modbus` |
+|---|---|---|---|---|
+| Braucht Home Assistant | ja | **nein** | nein | nein |
+| Karten-ID | aus dem HA-Sensor | **aus dem Transaktions-Log** | aus der Transaktion | nur mit Tag-Register |
+| kWh | Sensor-Delta | **Zählerstände der Transaktion** | `meterStart`/`meterStop` | Register-Delta |
+| Belegt den OCPP-Backend-Slot | nein | **nein** | **ja** | nein |
+| Zugriffskontrolle | nein | nein | **ja** | nein |
+| Herstellerunabhängig | ja | **nein, nur Alfen** | ja | ja |
+
+Zugriffskontrolle gibt es hier nicht: die Wallbox entscheidet selbst, wer laden
+darf. Nicht freigeschaltete Karten werden **nicht abgerechnet** und im Log
+benannt — im Tab **Karten** lassen sie sich dann einordnen.
+
+### Einrichtung
+
+```yaml
+session_source: alfen_http
+
+alfen:
+  host: "192.168.1.60"        # IP, Hostname oder vollständige URL
+  username: "admin"           # Zugangsdaten der WALLBOX, nicht von Dolibarr
+  password: "..."
+  verify_ssl: false           # Alfen liefert ein selbst ausgestelltes Zertifikat
+  poll_interval: 30           # Zähler und Zustand → Anzeige
+  transaction_interval: 300   # Transaktions-Log → Abrechnung
+```
+
+Das war's. Die Parameter-IDs für Steckdose 1 sind voreingestellt
+(`2221_22` Zählerstand, `2501_1` Hauptzustand); für Steckdose 2 einer Eve Double
+auf `2221_32` bzw. `2502_1` ändern.
+
+### Die zwei Takte
+
+Eine Eigenschaft abzufragen ist günstig, das Transaktions-Log zu lesen ist
+**teuer** — die Wallbox läuft dafür ihre gesamte Historie durch. Darum zwei
+Intervalle: `poll_interval` für die Anzeige, `transaction_interval` für die
+Abrechnung. Ein kürzeres Transaktions-Intervall als `poll_interval` wird
+automatisch angehoben.
+
+Beim Start wird das Log sofort gelesen, damit Ladungen aus der Zeit vor dem
+Neustart nachkommen.
+
+### Warum das Log mehrfach gelesen werden darf
+
+Es wird bei jedem Durchlauf **komplett** gelesen, jede Ladung also viele Male
+gesehen. Abgerechnet wird sie trotzdem genau einmal: die Transaktions-ID der
+Wallbox dient als Schlüssel, und der Import läuft über dieselbe geprüfte
+Idempotenz wie der OCPP-Betrieb.
+
+### Einschränkung beim Logformat
+
+Das Format der Logzeilen ist aus dem Parser der HACS-Integration
+abgeleitet und **nicht an echter Hardware verifiziert**. Deshalb liest
+ExpenseCharge musterbasiert: Zeitpunkt, kWh und Karte werden per Muster gesucht
+statt an festen Feldpositionen. Verschiebt ein Firmware-Update die Reihenfolge,
+liefert der Parser weiterhin das Richtige — oder gar nichts. Er liefert nie
+einen falschen Wert an der falschen Stelle.
+
+Eine Zeile ohne erkennbare Karte oder ohne Zählerstand wird übersprungen und im
+Log vermerkt. Ein nicht abgerechneter Vorgang ist reparierbar, eine falsche
+Spesenzeile nicht.
+
+### Fehlersuche
+
+```
+Alfen-Zugriff fehlgeschlagen — es wird NICHTS geschrieben, damit keine
+falschen Werte entstehen: Anmeldung an https://192.168.1.60 abgelehnt
+(HTTP 401) — Benutzername und Passwort prüfen
+```
+
+Nach fünf Fehlversuchen in 60 Sekunden setzt ExpenseCharge die Anmeldung aus —
+die Wallbox sperrt sonst selbst, und ein Tippfehler in der Konfiguration würde
+sie dauerhaft blockieren. Zugangsdaten erscheinen in **keiner** Logmeldung.
+
 ## Betriebsart Modbus TCP
 
 Die dritte Datenquelle, neben `ha_sensors` und `ocpp`. Sie löst ein Problem, das

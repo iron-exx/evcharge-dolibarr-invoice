@@ -76,13 +76,17 @@ Standalone-Anleitung: [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#st
 
 Woher die Ladevorgänge kommen, bestimmt `session_source`:
 
-| | `ha_sensors` (Default) | `ocpp` | `modbus` |
-|---|---|---|---|
-| Braucht Home Assistant | ja | nein | nein |
-| Zugriffskontrolle | nein | **ja** — unbekannte Karten laden nicht | nein |
-| Karten-ID | aus dem HA-Sensor | aus der OCPP-Transaktion | nur wenn die Wallbox sie in ein Register legt |
-| Parallel zum Cloud-Backend des Herstellers | ja | **nein** (Backend-Slot belegt) | **ja** |
-| Einrichtung | Sensoren zuordnen | URL in der Wallbox eintragen | Registeradressen übertragen |
+| | `ha_sensors` (Default) | `alfen_http` | `ocpp` | `modbus` |
+|---|---|---|---|---|
+| Braucht Home Assistant | ja | **nein** | nein | nein |
+| Zugriffskontrolle | nein | nein | **ja** | nein |
+| Karten-ID | aus dem HA-Sensor | **aus dem Transaktions-Log** | aus der OCPP-Transaktion | nur mit Tag-Register |
+| Parallel zum Cloud-Backend | ja | **ja** | nein (Slot belegt) | **ja** |
+| Hersteller | alle | **nur Alfen** | alle mit OCPP 1.6J | alle mit Modbus TCP |
+| Einrichtung | Sensoren zuordnen | IP und Zugangsdaten | URL in der Wallbox | Registeradressen |
+
+Für eine **Alfen** ist `alfen_http` die beste Wahl: Zähler, Zustand und Karte aus
+einer Quelle, ohne HA und ohne den OCPP-Backend-Slot zu belegen.
 
 ## Voraussetzungen
 

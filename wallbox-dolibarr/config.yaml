@@ -41,6 +41,9 @@ options:
   # "ha_sensors" → Ladevorgänge aus Home-Assistant-Sensoren (bisheriges Verhalten)
   # "ocpp"       → Addon ist selbst OCPP-1.6J-Zentralserver, Wallbox verbindet
   #                sich direkt (ws://<HA-IP>:<Port>/<Charge-Point-ID>)
+  # "alfen_http" → Addon spricht die HTTPS-API einer Alfen direkt an. Liefert
+  #                Zaehler, Zustand UND die Karte (aus dem Transaktions-Log),
+  #                ohne Home Assistant und ohne den OCPP-Backend-Slot.
   # "modbus"     → Addon fragt die Wallbox per Modbus TCP ab. Laeuft PARALLEL
   #                zu einem Cloud-Backend des Herstellers, anders als OCPP.
   #                Die Registerkarte unten muss dann ausgefuellt werden.
@@ -48,6 +51,26 @@ options:
   ocpp_charge_points: []
   ocpp_heartbeat_interval: 300
   ocpp_apply_recommended_config: false
+
+  # ── Alfen HTTPS-API (nur bei session_source: "alfen_http") ─────────────
+  # Die Abrechnung kommt aus dem Transaktions-Log der Wallbox — fertige
+  # Ladevorgaenge mit Karte, Zeitpunkt und Zaehlerstaenden. Es wird also
+  # nichts aus Sensorflanken geraten.
+  # verify_ssl steht auf false, weil Alfen ein selbst ausgestelltes Zertifikat
+  # liefert; im LAN ist das der Normalfall.
+  alfen:
+    host: ""
+    username: "admin"
+    password: ""
+    display_name: "ExpenseCharge"
+    verify_ssl: false
+    timeout: 10
+    poll_interval: 30
+    transaction_interval: 300
+    max_log_pages: 200
+    param_energy: "2221_22"
+    param_state: "2501_1"
+    fixed_login: ""
 
   # ── Modbus TCP (nur bei session_source: "modbus") ──────────────────────
   # Es gibt KEINE herstelleruebergreifende Registerkarte — Adressen, Typen
@@ -166,13 +189,26 @@ schema:
   wallbox_id: "str"
   rfid_whitelist:
     - "str"
-  session_source: "list(ha_sensors|ocpp|modbus)"
+  session_source: "list(ha_sensors|ocpp|alfen_http|modbus)"
   ocpp_charge_points:
     - id: "str"
       password: "password?"
       wallbox_id: "str?"
   ocpp_heartbeat_interval: "int(30,3600)"
   ocpp_apply_recommended_config: "bool"
+  alfen:
+    host: "str?"
+    username: "str?"
+    password: "password?"
+    display_name: "str?"
+    verify_ssl: "bool?"
+    timeout: "float(1,120)?"
+    poll_interval: "float(5,3600)?"
+    transaction_interval: "float(30,86400)?"
+    max_log_pages: "int(1,5000)?"
+    param_energy: "str?"
+    param_state: "str?"
+    fixed_login: "str?"
   modbus:
     host: "str?"
     port: "int(1,65535)?"
