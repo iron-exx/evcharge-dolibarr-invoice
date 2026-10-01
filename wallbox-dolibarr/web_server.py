@@ -15,7 +15,7 @@ import logging
 import calendar
 import html
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiohttp import web
 
@@ -76,13 +76,30 @@ html, body {
   font-size: 13px; color: var(--dim);
   border: 1px dashed var(--border); border-radius: 9px;
 }
+/* ── Hero + Streifen ── */
+.hero-val { font-size: 38px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hero-unit { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 7px; }
+.hero-lbl { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.hero-side { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.7; }
+.hero-side strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.kpi-warn, .hero-side .kpi-warn strong { color: var(--warn); }
+.spark-wrap { margin-top: 4px; }
+.spark { width: 100%; height: 44px; display: block; }
+.spark .spark-bar rect { transition: opacity .12s; }
+.spark .spark-bar:hover rect { opacity: .7; }
+.spark-foot {
+  display: flex; justify-content: space-between;
+  font-size: 10.5px; color: var(--dim); margin-top: 5px;
+}
+.spark-empty { font-size: 12.5px; color: var(--dim); padding: 10px 0 2px; }
 /* ── Kennzahlen ── */
 .kpis {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
   background: var(--border); border: 1px solid var(--border);
   border-radius: 9px; overflow: hidden; margin-bottom: 16px;
 }
-@media (max-width: 560px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpis-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 560px) { .kpis, .kpis-3 { grid-template-columns: repeat(2, 1fr); } }
 .kpi { background: var(--surface2); padding: 12px 14px; }
 .kpi-lbl {
   font-size: 10px; font-weight: 700; text-transform: uppercase;
@@ -407,6 +424,21 @@ def _db_active_sessions(db_path):
     return rows
 
 
+def _db_recent(db_path, days=14):
+    """Abgeschlossene Sessions der letzten Tage — Grundlage des Tagesstreifens."""
+    since = (datetime.now() - timedelta(days=days)).date().isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT start_time, total_kwh, status FROM sessions "
+            "WHERE start_time >= ? AND status IN ('completed','private')",
+            (since,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def _db_stats_month(db_path):
     """Statistiken für den aktuellen Monat"""
     now = datetime.now()
@@ -418,8 +450,14 @@ def _db_stats_month(db_path):
             COALESCE(SUM(
                 CASE WHEN status NOT IN ('active','discarded') THEN COALESCE(total_kwh, 0)
                      ELSE 0 END), 0) AS kwh,
+            COALESCE(SUM(
+                CASE WHEN status = 'private' THEN COALESCE(total_kwh, 0)
+                     ELSE 0 END), 0) AS private_kwh,
+            -- 'private' wird absichtlich NIE übertragen (transmitted_at bleibt
+            -- NULL) und darf daher nicht als ausstehend gelten — sonst stünde
+            -- dauerhaft eine Warnung da, die sich nie auflösen lässt.
             SUM(CASE WHEN transmitted_at IS NULL
-                      AND status NOT IN ('active','discarded','incomplete') THEN 1
+                      AND status NOT IN ('active','discarded','incomplete','private') THEN 1
                      ELSE 0 END) AS pending
         FROM sessions
         WHERE strftime('%Y', start_time) = ?
@@ -429,8 +467,9 @@ def _db_stats_month(db_path):
     row = cur.fetchone()
     conn.close()
     if row:
-        return {'total': row[0] or 0, 'kwh': float(row[1] or 0.0), 'pending': row[2] or 0}
-    return {'total': 0, 'kwh': 0.0, 'pending': 0}
+        return {'total': row[0] or 0, 'kwh': float(row[1] or 0.0),
+                'private_kwh': float(row[2] or 0.0), 'pending': row[3] or 0}
+    return {'total': 0, 'kwh': 0.0, 'private_kwh': 0.0, 'pending': 0}
 
 
 # ---------------------------------------------------------------------------
@@ -445,26 +484,52 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     try:
         stats = _db_stats_month(session_manager.db_path)
     except Exception:
-        stats = {'total': 0, 'kwh': 0.0, 'pending': 0}
+        stats = {'total': 0, 'kwh': 0.0, 'private_kwh': 0.0, 'pending': 0}
 
     month_lbl = f'{_month_name(now.month)} {now.year}'
     warn_cls  = 'stat-warn' if stats['pending'] > 0 else 'stat-ok'
+    try:
+        recent = _db_recent(session_manager.db_path, days=14)
+    except Exception:
+        recent = []
+    trend_html = _build_trend_strip(recent, days=14)
+
+    billed_kwh = max(0.0, stats['kwh'] - stats.get('private_kwh', 0.0))
+    pending_cls = 'kpi-warn' if stats['pending'] > 0 else ''
+    pending_sub = ('wird beim nächsten Durchlauf übertragen'
+                   if stats['pending'] > 0 else 'alles übertragen')
+
     stats_html = f"""
-<div class="stats">
-  <div class="stat stat-blue">
-    <div class="stat-lbl">{_ICO_BOLT} Sessions {month_lbl}</div>
-    <div class="stat-val">{stats['total']}</div>
-    <div class="stat-sub">Ladevorgänge diesen Monat</div>
+<div class="card">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;
+              gap:12px;flex-wrap:wrap;margin-bottom:12px">
+    <div>
+      <div class="hero-val">{billed_kwh:.1f}<span class="hero-unit">kWh</span></div>
+      <div class="hero-lbl">abgerechnet im {month_lbl}</div>
+    </div>
+    <div class="hero-side">
+      <div><strong>{stats['total']}</strong> Ladevorgänge</div>
+      <div class="{pending_cls}"><strong>{stats['pending']}</strong> ausstehend</div>
+    </div>
   </div>
-  <div class="stat stat-ok">
-    <div class="stat-lbl">{_ICO_UP} Energie {month_lbl}</div>
-    <div class="stat-val">{stats['kwh']:.1f} kWh</div>
-    <div class="stat-sub">geladene Energie gesamt</div>
+  {trend_html}
+</div>
+
+<div class="kpis kpis-3">
+  <div class="kpi">
+    <div class="kpi-lbl">{_ICO_UP} Energie gesamt</div>
+    <div class="kpi-val">{stats['kwh']:.1f}<span class="kpi-unit">kWh</span></div>
+    <div class="kpi-sub">inklusive privater Ladungen</div>
   </div>
-  <div class="stat {warn_cls}">
-    <div class="stat-lbl">{_ICO_HIST} Ausstehend</div>
-    <div class="stat-val">{stats['pending']}</div>
-    <div class="stat-sub">noch nicht übertragen</div>
+  <div class="kpi">
+    <div class="kpi-lbl">Privat</div>
+    <div class="kpi-val">{stats.get('private_kwh', 0.0):.1f}<span class="kpi-unit">kWh</span></div>
+    <div class="kpi-sub">bleibt lokal</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">{_ICO_HIST} Ausstehend</div>
+    <div class="kpi-val {pending_cls}">{stats['pending']}</div>
+    <div class="kpi-sub">{pending_sub}</div>
   </div>
 </div>"""
 
@@ -854,17 +919,75 @@ def _daily_buckets(rows, year, month):
     return buckets
 
 
+# Achsen-Höchstwerte. Feiner als 1/2/5, damit der höchste Balken die Plothöhe
+# auch ausnutzt: bei 59 kWh wäre 1/2/5 auf 100 gesprungen und hätte 40 % der
+# Fläche verschenkt.
+_NICE_FACTORS = (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10)
+
+
 def _nice_ceiling(value):
-    """Nächster runder Achsen-Höchstwert über value (1/2/5 × 10^n)."""
+    """Nächster runder Achsen-Höchstwert über value."""
     if value <= 0:
         return 1.0
     import math
-    exp = math.floor(math.log10(value))
-    base = 10 ** exp
-    for factor in (1, 2, 5, 10):
-        if value <= factor * base:
-            return float(factor * base)
+    base = 10 ** math.floor(math.log10(value))
+    for factor in _NICE_FACTORS:
+        candidate = factor * base
+        if value <= candidate + 1e-9:
+            return float(candidate)
     return float(10 * base)
+
+
+def _build_trend_strip(rows, days=14, today=None):
+    """Kompakter Tagesstreifen für die Hauptseite ("die letzten 14 Tage").
+
+    Eine Serie, also keine Legende — der Titel darüber benennt sie. Kein
+    Achsenkreuz: der Streifen beantwortet "wann wurde geladen", nicht
+    "wie viel genau". Die Zahl steht in den Kennzahlen darüber.
+    """
+    today = (today or datetime.now()).date() if hasattr(today or datetime.now(), 'date') \
+        else (today or datetime.now())
+    window = [today - timedelta(days=i) for i in range(days - 1, -1, -1)]
+    totals = {d: 0.0 for d in window}
+
+    for row in rows:
+        if (row.get('status') or '').lower() not in ('completed', 'private'):
+            continue
+        try:
+            d = datetime.fromisoformat(str(row.get('start_time') or '')).date()
+            kwh = float(row.get('total_kwh') or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if d in totals and kwh > 0:
+            totals[d] += kwh
+
+    if not any(totals.values()):
+        return ('<div class="spark-empty">In den letzten '
+                f'{days} Tagen noch keine Ladung erfasst.</div>')
+
+    peak = max(totals.values())
+    w, h = 320.0, 44.0
+    slot = w / days
+    bar_w = max(4.0, slot - 3.0)
+    bars = []
+    for i, d in enumerate(window):
+        value = totals[d]
+        if value <= 0:
+            continue
+        bar_h = max(2.0, (value / peak) * (h - 4))
+        x = i * slot + (slot - bar_w) / 2
+        bars.append(
+            f'<g class="spark-bar"><title>{d.strftime("%d.%m.")}: {value:.3f} kWh</title>'
+            f'<rect x="{x:.1f}" y="{h - bar_h:.1f}" width="{bar_w:.1f}" '
+            f'height="{bar_h:.1f}" rx="2" fill="{SERIES_BUSINESS}"/></g>')
+
+    active = sum(1 for v in totals.values() if v > 0)
+    svg = (f'<svg viewBox="0 0 {w:.0f} {h:.0f}" preserveAspectRatio="none" class="spark" '
+           f'role="img" aria-label="Geladene Energie der letzten {days} Tage, '
+           f'{active} Tage mit Ladung">' + ''.join(bars) + '</svg>')
+    return (f'<div class="spark-wrap">{svg}'
+            f'<div class="spark-foot"><span>vor {days} Tagen</span>'
+            f'<span>{active} von {days} Tagen geladen</span><span>heute</span></div></div>')
 
 
 def _build_daily_chart(rows, year, month):
@@ -991,10 +1114,12 @@ def _build_history_page(session_manager, year, month, base_href=''):
     total_kwh = sum(s.get('total_kwh') or 0 for s in rows)
     n_total   = len(rows)
     n_sent    = sum(1 for s in rows if s.get('transmitted_at'))
+    # 'private' wird absichtlich nie übertragen und ist daher nicht ausstehend.
     n_pending = sum(
         1 for s in rows
         if not s.get('transmitted_at')
-        and (s.get('status') or '').lower() not in ('discarded', 'incomplete', 'active')
+        and (s.get('status') or '').lower() not in ('discarded', 'incomplete',
+                                                    'active', 'private')
     )
 
     if rows:

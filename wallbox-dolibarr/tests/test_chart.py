@@ -123,3 +123,46 @@ def test_stacked_segments_keep_a_two_pixel_surface_gap():
     lower, upper = sorted(rects, key=lambda r: -r[1])
     gap = lower[1] - (upper[1] + upper[3])
     assert gap == pytest.approx(2.0, abs=0.2), f"Spalt ist {gap:.2f}px, erwartet 2px"
+
+
+# ---- 14-Tage-Streifen auf der Hauptseite ---------------------------------
+
+def test_trend_strip_covers_the_requested_window():
+    from web_server import _build_trend_strip
+    from datetime import datetime, timedelta
+    today = datetime(2026, 10, 20)
+    rows = [{'start_time': (today - timedelta(days=d)).strftime('%Y-%m-%dT10:00:00'),
+             'total_kwh': 4.0, 'status': 'completed'} for d in (0, 3, 13, 30)]
+    html = _build_trend_strip(rows, days=14, today=today)
+    assert html.count('class="spark-bar"') == 3, "nur Tage im Fenster mit Werten"
+    assert '<svg' in html
+
+
+def test_trend_strip_is_empty_without_data():
+    from web_server import _build_trend_strip
+    from datetime import datetime
+    html = _build_trend_strip([], days=14, today=datetime(2026, 10, 20))
+    assert '<svg' not in html
+    assert 'noch keine' in html.lower()
+
+
+def test_axis_ceiling_hugs_the_data():
+    """Ein zu großzügiger Achsen-Höchstwert verschenkt Plothöhe und lässt die
+    Balken flach aussehen."""
+    from web_server import _nice_ceiling
+    for value, expected in [(59.1, 60), (42.0, 50), (9.3, 10), (13.0, 15),
+                            (120.0, 150), (0.4, 0.4), (0.41, 0.5), (1.0, 1.0)]:
+        got = _nice_ceiling(value)
+        assert got == pytest.approx(expected), f"_nice_ceiling({value}) = {got}, erwartet {expected}"
+        assert got >= value
+
+
+def test_tallest_bar_uses_most_of_the_plot_height():
+    rows = [_s(5, 59.1), _s(9, 20.0)]
+    html = _build_daily_chart(rows, 2026, 10)
+    import re
+    rects = [tuple(map(float, m)) for m in re.findall(
+        r'<rect x="([\d.]+)" y="([-\d.]+)" width="([\d.]+)" height="([\d.]+)"', html)]
+    tallest = max(h for _, _, _, h in rects)
+    plot_h = 190.0 - 16.0 - 26.0
+    assert tallest / plot_h > 0.9, f"höchster Balken nutzt nur {tallest / plot_h:.0%} der Plothöhe"
