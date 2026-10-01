@@ -46,6 +46,7 @@ from api_client import WallboxApiClient
 
 # Ingress Web-Server für manuelle Sessions
 from web_server import start_web_server
+from tag_release import TagReleaser
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
@@ -99,6 +100,12 @@ _NO_AUTH_RFID = "NO_AUTH_REQUIRED"
 # Sofort-Übertragung anstoßen (z.B. nach einer OCPP-StopTransaction), statt
 # auf das nächste transmit_interval zu warten.
 _transmit_requested = asyncio.Event()
+
+# Setzt den RFID-Wert selbst auf "kein Tag" zurück, wenn der Sensor ihn hält.
+# None = abgeschaltet (Default): dann bleibt das Verhalten exakt wie bisher.
+# Nötig z.B. bei der Alfen-Integration, die den Tag aus dem Transaktions-Log
+# ableitet — dort steht dauerhaft die letzte Karte.
+_tag_releaser = None
 
 
 def _parse_energy(value):
@@ -477,6 +484,14 @@ async def sensor_callback(entity_id: str, state: Dict[str, Any]):
     # ----- RFID-Sensor (Session-Start / ggf. Session-Ende bei tag_toggle) ---
     if entity_id == sensor_rfid and sensor_rfid:
         sv = (state_value or '').strip()
+
+        # Haftenden Sensorwert in ein Flankensignal verwandeln (optional).
+        if _tag_releaser is not None:
+            decided = _tag_releaser.observe(sv)
+            if decided is None:
+                return                  # nichts Neues — Wert haftet nur
+            sv = decided                # '' = Rückfall auf "kein Tag"
+
         sv_low = sv.lower()
 
         # "No Tag" / unknown: Bei Auto-Reset-Wallboxen (Alfen-Integration setzt
@@ -800,7 +815,7 @@ async def run_ocpp_mode(settings) -> None:
 
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
-    global session_manager, current_config, ha_ws, api_client, api_state, profile
+    global session_manager, current_config, ha_ws, api_client, api_state, profile, _tag_releaser
 
     _LOGGER.info("Wallbox-Dolibarr Addon startet...")
 
@@ -850,6 +865,12 @@ async def main():
             api_client = None
     else:
         _LOGGER.info("Keine Dolibarr API-Konfiguration — Addon läuft ohne API-Transmission")
+
+    hold = float(current_config.get('rfid_hold_seconds', 0) or 0)
+    if hold > 0:
+        _tag_releaser = TagReleaser(hold_seconds=hold)
+        _LOGGER.info("RFID-Haltezeit aktiv: Tag wird %.1f s nach Erkennung selbst "
+                     "auf \"kein Tag\" zurückgesetzt", hold)
 
     ocpp_settings = resolve_ocpp_settings(current_config)
     if ocpp_settings.enabled:

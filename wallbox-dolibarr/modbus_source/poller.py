@@ -11,12 +11,12 @@ laufende Session würde mit falschem Zählerstand beendet.
 """
 import asyncio
 import logging
-import time
 from typing import Awaitable, Callable, Dict, Optional
 
 from modbus_source.client import ModbusError, ModbusTcpClient
 from modbus_source.registers import decode_registers, decode_string
 from modbus_source.settings import ModbusSettings, RegisterSpec
+from tag_release import TagReleaser
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,46 +35,14 @@ class ModbusPoller:
                                        settings.function_code, settings.timeout)
         self._warned = False          # nur einmal pro Ausfall meckern
         # Haftendes Tag-Register: viele Wallboxen behalten dauerhaft die letzte
-        # Karte. Wir melden sie daher flankengesteuert — einmal beim Wechsel —
-        # und erzeugen nach rfid_hold_seconds selbst den Rückfall auf "kein Tag".
-        self._tag_value = ''          # letzter im Register gesehener Wert
-        self._tag_seen_at = 0.0       # wann er erstmals gesehen wurde
-        self._tag_released = True     # Reset für diesen Wert bereits gemeldet?
+        # Karte. Dieselbe Behandlung wie im HA-Pfad — gemeinsamer Helfer.
+        self._tags = TagReleaser(hold_seconds=settings.rfid_hold_seconds)
 
     async def _read(self, spec: RegisterSpec):
         words = await self._client.read(spec.address, spec.count)
         if spec.type == 'string':
             return decode_string(words)
         return decode_registers(words, spec.type, spec.word_order, spec.scale)
-
-    def _tag_to_report(self, raw_tag: str, now: Optional[float] = None):
-        """Was aus einem gelesenen Tag-Register nach außen gemeldet wird.
-
-        Gibt den zu meldenden Wert zurück — oder None, wenn nichts zu melden
-        ist. Drei Fälle:
-          - neuer Wert       → Tag melden (Flanke)
-          - Wert unverändert → nach der Haltezeit EINMAL '' melden (Reset),
-                               danach schweigen
-          - Register leer    → '' melden, sobald es vorher nicht leer war
-        """
-        now = now if now is not None else time.monotonic()
-        tag = (raw_tag or '').strip()
-
-        if not tag:
-            if self._tag_value:
-                self._tag_value, self._tag_released = '', True
-                return ''
-            return None
-
-        if tag != self._tag_value:
-            self._tag_value, self._tag_seen_at, self._tag_released = tag, now, False
-            return tag
-
-        if not self._tag_released and (now - self._tag_seen_at) >= self._s.rfid_hold_seconds:
-            self._tag_released = True
-            _LOGGER.debug("Tag-Register haftet — Rückfall auf 'kein Tag' selbst erzeugt")
-            return ''
-        return None
 
     async def poll_once(self) -> bool:
         """Einen Durchlauf lesen. True bei Erfolg, False bei Lesefehler.
@@ -112,7 +80,7 @@ class ModbusPoller:
             if not entity_id:
                 continue
             if key == 'rfid':
-                reported = self._tag_to_report(value)
+                reported = self._tags.observe(value)
                 if reported is None:
                     continue            # haftender Wert, nichts Neues
                 value = reported
