@@ -47,6 +47,9 @@ class CentralSystemDeps:
     heartbeat_interval: int = 300
     apply_recommended_config: bool = False
     on_session_completed: Optional[Callable[[dict], None]] = None
+    # Lernmodus: wird mit JEDER vorgehaltenen Karte gerufen, auch mit einer
+    # abgelehnten — sonst könnte der Admin sie nicht freischalten.
+    on_tag_seen: Optional[Callable[[str], object]] = None
 
 
 def _utc_now_iso() -> str:
@@ -74,7 +77,16 @@ class CentralSystemChargePoint(ChargePoint):
 
     def _authorize(self, id_tag) -> AuthorizationStatus:
         tag = normalize_id_tag(id_tag)
-        if is_whitelisted(tag, self._deps.whitelist):
+        if tag and self._deps.on_tag_seen is not None:
+            try:
+                self._deps.on_tag_seen(tag)
+            except Exception as exc:        # Lernmodus darf nie das Laden stören
+                _LOGGER.warning("[%s] Lernmodus-Hook fehlgeschlagen: %s", self.id, exc)
+        # Autorisierung über BEIDE Quellen: die Konfigurations-Whitelist und die
+        # Tag-Verwaltung des Addons. Letztere ist der Zweck des Lernmodus —
+        # eine dort eingeordnete Karte muss auch hier laden dürfen. 'private'
+        # darf laden (nur nicht abgerechnet werden), 'unknown' nicht.
+        if self._authorized(tag):
             return AuthorizationStatus.accepted
         # Klartext NUR im flüchtigen Live-Zustand (Ingress-UI, Admin), damit die
         # Karte eingetragen werden kann — im Log nur der Hash-Präfix.
@@ -82,6 +94,18 @@ class CentralSystemChargePoint(ChargePoint):
         _LOGGER.warning("[%s] Karte abgelehnt (nicht in rfid_whitelist): %s...",
                         self.id, hash_rfid(tag)[:16])
         return AuthorizationStatus.invalid
+
+    def _authorized(self, tag: str) -> bool:
+        if is_whitelisted(tag, self._deps.whitelist):
+            return True
+        checker = getattr(self._deps.session_manager, 'is_rfid_authorized', None)
+        if checker is None or not tag:
+            return False
+        try:
+            return bool(checker(tag, []))
+        except Exception as exc:    # Datenbankfehler darf nicht autorisieren
+            _LOGGER.error("[%s] Tag-Verwaltung nicht lesbar — Karte abgelehnt: %s", self.id, exc)
+            return False
 
     @on(Action.boot_notification)
     async def on_boot_notification(self, charge_point_vendor, charge_point_model, **kwargs):

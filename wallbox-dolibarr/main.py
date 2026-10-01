@@ -47,6 +47,7 @@ from api_client import WallboxApiClient
 # Ingress Web-Server für manuelle Sessions
 from web_server import start_web_server
 from tag_release import TagReleaser
+from tag_learning import LearnBuffer
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
@@ -106,6 +107,10 @@ _transmit_requested = asyncio.Event()
 # Nötig z.B. bei der Alfen-Integration, die den Tag aus dem Transaktions-Log
 # ableitet — dort steht dauerhaft die letzte Karte.
 _tag_releaser = None
+
+# Lernmodus: hält zuletzt vorgehaltene Karten flüchtig im Speicher, damit der
+# Admin sie in der Oberfläche benennen und einordnen kann. Standardmäßig aus.
+learn_buffer = LearnBuffer()
 
 
 def _parse_energy(value):
@@ -506,6 +511,12 @@ async def sensor_callback(entity_id: str, state: Dict[str, Any]):
         # Anliegenden Tag cachen (auch vor Debounce/Whitelist — für Charging-Fallback)
         _latest_rfid = sv
 
+        # Lernmodus: jede vorgehaltene Karte sichtbar machen, auch eine noch
+        # nicht eingeordnete — sonst kann sie der Admin nie freischalten.
+        # Der Klartext bleibt dabei flüchtig im Speicher; persistiert wird nur
+        # der Hash.
+        note_tag_seen(sv)
+
         # Echter Tag erkannt — Debounce + Whitelist
         if not session_manager.debounce_rfid(sv):
             return
@@ -745,6 +756,22 @@ async def periodic_transmission():
         await asyncio.sleep(1)
 
 
+def note_tag_seen(tag: str) -> bool:
+    """Eine vorgehaltene Karte für den Lernmodus festhalten.
+
+    Zwei Dinge: Klartext flüchtig in den Puffer (damit der Admin sie in der
+    Oberfläche sieht) und den Hash in die Tag-Verwaltung (damit sie dort zum
+    Benennen auftaucht). Nur aktiv, wenn der Lernmodus eingeschaltet ist.
+    """
+    if not learn_buffer.observe(tag):
+        return False
+    try:
+        session_manager.note_tag_seen(tag)
+    except Exception as exc:
+        _LOGGER.warning("Tag konnte nicht vermerkt werden: %s", exc)
+    return True
+
+
 def build_ocpp_server(settings) -> OcppServer:
     """Verdrahtet den OCPP-Server mit SessionManager, Whitelist und Live-Zustand."""
     api_state['charge_points'] = {}
@@ -756,6 +783,7 @@ def build_ocpp_server(settings) -> OcppServer:
         heartbeat_interval=settings.heartbeat_interval,
         apply_recommended_config=settings.apply_recommended_config,
         on_session_completed=lambda _session: _transmit_requested.set(),
+        on_tag_seen=note_tag_seen,
     )
     return OcppServer(settings, deps)
 
@@ -840,6 +868,8 @@ async def main():
     # und vom Web-Server für die Live-Anzeige laufender Sessions gelesen.
     api_state  = {
         'client': None,
+        # Lernmodus für die Oberfläche (Ein/Aus + flüchtig erkannte Karten)
+        'learn': learn_buffer,
         'current_energy': None,    # aktueller Energiezähler-Stand in kWh
         'wallbox_state': None,     # 'Charging' / 'Idle' / 'Stopped' / None
         'last_update': None,       # ISO-Timestamp der letzten Sensor-Aktualisierung

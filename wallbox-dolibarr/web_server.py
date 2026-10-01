@@ -12,6 +12,7 @@ Seiten:
 import csv
 import io
 import logging
+import html
 import sqlite3
 from datetime import datetime
 
@@ -230,6 +231,12 @@ _ICO_CHECK = (
     ' stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
     '<polyline points="20 6 9 17 4 12"/></svg>'
 )
+_ICO_CARD = (
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>'
+    '<path d="M6 15h4"/></svg>'
+)
 _ICO_BOLT_WHITE = (
     '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff"'
     ' stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
@@ -250,6 +257,10 @@ def _base(active, content, base_href=''):
     nav_hist = (
         f'<a href="history" class="{"active" if active == "history" else ""}">'
         f'{_ICO_HIST} Verlauf</a>'
+    )
+    nav_tags = (
+        f'<a href="tags" class="{"active" if active == "tags" else ""}">'
+        f'{_ICO_CARD} Karten</a>'
     )
     return f"""<!DOCTYPE html>
 <html lang="de">
@@ -273,7 +284,7 @@ def _base(active, content, base_href=''):
     <span id="conn-lbl">—</span>
   </div>
 </header>
-<nav class="nav">{nav_form}{nav_hist}</nav>
+<nav class="nav">{nav_form}{nav_hist}{nav_tags}</nav>
 <div class="page">{content}</div>
 </body>
 </html>"""
@@ -629,6 +640,136 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     return _base('form', content, base_href)
 
 
+_TAG_MODE_LABELS = {
+    'business': ('Geschäftlich', 'var(--success)', 'wird an Dolibarr übertragen'),
+    'private': ('Privat', 'var(--warn)', 'bleibt lokal, keine Übertragung'),
+    'unknown': ('Nicht eingeordnet', 'var(--error)', 'kann nicht laden'),
+}
+
+
+def _tags_out(session_manager):
+    """Tag-Liste für die Oberfläche — ohne den vollen Hash."""
+    out = []
+    for t in session_manager.list_tags():
+        label, color, hint = _TAG_MODE_LABELS.get(t['mode'], _TAG_MODE_LABELS['unknown'])
+        out.append({
+            'hash_prefix': (t['rfid_hash'] or '')[:16],
+            'label': t['label'],
+            'mode': t['mode'],
+            'mode_label': label,
+            'mode_color': color,
+            'mode_hint': hint,
+            'first_seen': t['first_seen'],
+            'last_seen': t['last_seen'],
+            'seen_count': t['seen_count'],
+        })
+    return out
+
+
+def _learn_out(api_state):
+    learn = (api_state or {}).get('learn')
+    if learn is None:
+        return {'enabled': False, 'detected': []}
+    return {'enabled': bool(learn.enabled), 'detected': learn.detected()}
+
+
+def _build_tags_page(session_manager, config, api_state=None, base_href='', message_html=''):
+    learn = _learn_out(api_state)
+    tags = _tags_out(session_manager)
+
+    toggle_label = 'Lernmodus beenden' if learn['enabled'] else 'Lernmodus starten'
+    toggle_value = 'off' if learn['enabled'] else 'on'
+    toggle_style = 'background:var(--error)' if learn['enabled'] else ''
+
+    if learn['enabled']:
+        hint = ('<div style="color:var(--muted);font-size:13px;margin-bottom:10px">'
+                'Halte jetzt eine Karte an die Wallbox. Sie erscheint hier und kann '
+                'benannt werden. Der Klartext der Karten-ID liegt nur im Arbeitsspeicher '
+                'und verschwindet beim Beenden des Lernmodus.</div>')
+    else:
+        hint = ('<div style="color:var(--muted);font-size:13px;margin-bottom:10px">'
+                'Im Lernmodus wird jede vorgehaltene Karte hier angezeigt — auch eine '
+                'bisher unbekannte. Danach benennen und einordnen.</div>')
+
+    detected_html = ''
+    if learn['enabled']:
+        if learn['detected']:
+            rows = []
+            for d in learn['detected']:
+                rows.append(
+                    '<form method="POST" action="tags" class="tag-row">'
+                    f'<input type="hidden" name="tag" value="{html.escape(d["tag"])}">'
+                    f'<code style="font-size:15px;font-weight:700">{html.escape(d["tag"])}</code>'
+                    f'<span style="color:var(--dim);font-size:11px">vor {d["seconds_ago"]:.0f}s'
+                    f' · {d["count"]}x</span>'
+                    '<input name="label" placeholder="Name, z.B. Firmenwagen 1" required>'
+                    '<select name="mode">'
+                    '<option value="business">Geschäftlich — wird abgerechnet</option>'
+                    '<option value="private">Privat — bleibt lokal</option>'
+                    '</select>'
+                    '<button type="submit" class="btn">Speichern</button>'
+                    '</form>')
+            detected_html = ''.join(rows)
+        else:
+            detected_html = ('<div style="color:var(--dim);font-size:13px;padding:8px 0">'
+                             'Noch keine Karte erkannt — jetzt eine an die Wallbox halten.</div>')
+
+    if tags:
+        rows = []
+        for t in tags:
+            name = html.escape(t['label'] or '(ohne Namen)')
+            rows.append(
+                '<div class="tag-row">'
+                f'<div style="flex:1"><strong>{name}</strong>'
+                f'<div style="color:var(--dim);font-size:11px">'
+                f'Hash {html.escape(t["hash_prefix"])}… · {t["seen_count"]}x gesehen · '
+                f'zuletzt {html.escape(t["last_seen"] or "—")}</div></div>'
+                f'<span style="background:{t["mode_color"]};color:#0F172A;padding:2px 8px;'
+                f'border-radius:3px;font-size:11px;font-weight:700">'
+                f'{html.escape(t["mode_label"])}</span>'
+                f'<span style="color:var(--dim);font-size:11px">{html.escape(t["mode_hint"])}</span>'
+                '<form method="POST" action="tags/delete" style="display:inline">'
+                f'<input type="hidden" name="hash_prefix" value="{html.escape(t["hash_prefix"])}">'
+                '<button type="submit" class="btn-dl" '
+                'onclick="return confirm(\'Karte wirklich entfernen? Sie kann danach nur noch '
+                'laden, wenn sie in der Konfigurations-Whitelist steht.\')">Entfernen</button>'
+                '</form>'
+                '</div>')
+        tags_html = ''.join(rows)
+    else:
+        tags_html = ('<div style="color:var(--dim);font-size:13px;padding:8px 0">'
+                     'Noch keine Karten eingetragen.</div>')
+
+    content = f"""{message_html}
+<div class="card">
+  <div class="card-title">{_ICO_CARD} Lernmodus</div>
+  {hint}
+  <form method="POST" action="learn" style="margin-bottom:12px">
+    <input type="hidden" name="enabled" value="{toggle_value}">
+    <button type="submit" class="btn" style="{toggle_style}">{toggle_label}</button>
+  </form>
+  {detected_html}
+</div>
+
+<div class="card">
+  <div class="card-title">{_ICO_CARD} Karten</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:10px">
+    <strong>Geschäftlich</strong> wird als Spesenposition an Dolibarr übertragen.
+    <strong>Privat</strong> wird lokal protokolliert und erreicht Dolibarr nie —
+    die Ladung bleibt im Verlauf und im CSV-Export sichtbar.
+    Nicht eingeordnete Karten können nicht laden.
+  </div>
+  {tags_html}
+</div>
+<style>
+.tag-row {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+            padding:10px 0; border-bottom:1px solid var(--border); }}
+.tag-row:last-child {{ border-bottom:none; }}
+.tag-row input[name=label] {{ flex:1; min-width:160px; }}
+</style>"""
+    return _base('tags', content, base_href=base_href)
+
+
 def _build_history_page(session_manager, year, month, base_href=''):
     months = _db_months(session_manager.db_path)
 
@@ -909,6 +1050,83 @@ def create_app(session_manager, config, api_state):
             'charge_points': _charge_points_out(api_state),
         })
 
+
+    async def _body(request):
+        """Nimmt JSON und Formulardaten gleichermaßen an."""
+        if (request.content_type or '').startswith('application/json'):
+            try:
+                data = await request.json()
+            except Exception:
+                return {}
+            return data if isinstance(data, dict) else {}
+        return dict(await request.post())
+
+    def _wants_json(request):
+        return (request.content_type or '').startswith('application/json')
+
+    async def handle_tags_page(request):
+        base_href = request.headers.get('X-Ingress-Path', '')
+        return web.Response(
+            content_type='text/html', charset='utf-8',
+            text=_build_tags_page(session_manager, config, api_state=api_state,
+                                  base_href=base_href))
+
+    async def handle_tags_json(request):
+        return web.json_response({
+            'learn': _learn_out(api_state),
+            'tags': _tags_out(session_manager),
+        })
+
+    async def handle_learn(request):
+        data = await _body(request)
+        raw = data.get('enabled')
+        enabled = raw in (True, 'on', 'true', '1', 1)
+        learn = (api_state or {}).get('learn')
+        if learn is None:
+            return web.json_response({'error': 'Lernmodus nicht verfügbar'}, status=503)
+        learn.enabled = enabled
+        if _wants_json(request):
+            return web.json_response({'enabled': learn.enabled})
+        raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+
+    async def handle_tags_save(request):
+        data = await _body(request)
+        tag = str(data.get('tag') or '').strip()
+        mode = str(data.get('mode') or '').strip()
+        label = str(data.get('label') or '').strip()
+        if not tag:
+            return web.json_response({'error': 'Karten-ID fehlt'}, status=400)
+        try:
+            saved = session_manager.upsert_tag(tag, label=label, mode=mode)
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=400)
+        if _wants_json(request):
+            return web.json_response({'ok': True, 'mode': saved['mode'],
+                                      'label': saved['label']})
+        raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+
+    async def handle_tags_delete(request):
+        data = await _body(request)
+        tag = str(data.get('tag') or '').strip()
+        prefix = str(data.get('hash_prefix') or '').strip()
+        removed = False
+        if tag:
+            removed = session_manager.delete_tag(tag)
+        elif prefix:
+            # Aus der Liste kommt nur der Hash-Präfix — den Klartext kennt die
+            # Oberfläche dort bewusst nicht mehr.
+            for t in session_manager.list_tags():
+                if (t['rfid_hash'] or '').startswith(prefix):
+                    removed = session_manager.delete_tag_by_hash(t['rfid_hash'])
+                    break
+        if not removed:
+            if _wants_json(request):
+                return web.json_response({'error': 'Karte nicht gefunden'}, status=404)
+            raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+        if _wants_json(request):
+            return web.json_response({'ok': True})
+        raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+
     app = web.Application()
     app.router.add_get('/',          handle_get)
     app.router.add_post('/',         handle_post)
@@ -916,6 +1134,11 @@ def create_app(session_manager, config, api_state):
     app.router.add_get('/live.json', handle_live_json)
     app.router.add_get('/history',   handle_history)
     app.router.add_get('/export',    handle_export)
+    app.router.add_get('/tags',         handle_tags_page)
+    app.router.add_get('/tags.json',    handle_tags_json)
+    app.router.add_post('/learn',       handle_learn)
+    app.router.add_post('/tags',        handle_tags_save)
+    app.router.add_post('/tags/delete', handle_tags_delete)
     return app
 
 

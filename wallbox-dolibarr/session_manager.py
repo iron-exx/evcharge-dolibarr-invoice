@@ -935,6 +935,20 @@ class SessionManager:
         finally:
             conn.close()
 
+    def delete_tag_by_hash(self, rfid_hash: str) -> bool:
+        """Entfernt einen Tag anhand seines Hashes.
+
+        Die Oberfläche kennt den RFID-Klartext bewusst nicht mehr, sobald eine
+        Karte eingetragen ist — zum Löschen genügt daher der Hash.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute("DELETE FROM tags WHERE rfid_hash = ?", (rfid_hash,))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
     def is_tag_billable(self, rfid_hash: str) -> bool:
         """Darf eine Ladung mit diesem Hash abgerechnet werden?
 
