@@ -157,6 +157,80 @@ verändert.
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
   abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.
 
+## Karten verwalten: Lernmodus, geschäftlich und privat
+
+Im Tab **Karten** der Web-UI lassen sich RFID-Karten direkt am Gerät anlernen,
+benennen und einordnen — ohne die Konfiguration anzufassen.
+
+### Eine neue Karte anlernen
+
+1. Tab **Karten** öffnen, **Lernmodus starten**.
+2. Karte an die Wallbox halten. Sie erscheint mit ihrer ID in der Liste.
+3. Namen eintragen (z.B. „Firmenwagen 1") und einordnen:
+   - **Geschäftlich** — die Ladung wird als Spesenposition an Dolibarr übertragen.
+   - **Privat** — die Ladung bleibt **lokal** und erreicht Dolibarr **nie**.
+4. **Speichern.** Danach darf die Karte laden. **Lernmodus beenden.**
+
+Eine erkannte, aber noch nicht eingeordnete Karte kann **nicht** laden — das ist
+Absicht: so landet keine unbekannte Karte versehentlich in der Abrechnung.
+
+### Geschäftlich oder privat
+
+| | Geschäftlich | Privat |
+|---|---|---|
+| Laden erlaubt | ja | ja |
+| Übertragung an Dolibarr | ja | **nie** |
+| Im Verlauf der Web-UI | ja | ja |
+| Im CSV-Export | ja | ja |
+| Status in der Datenbank | `completed` | `private` |
+
+Wird eine Karte **nachträglich** auf privat umgestellt, stoppt das auch eine noch
+nicht übertragene Ladung. Bereits übertragene Ladungen bleiben in Dolibarr —
+sie müssen dort storniert werden.
+
+### Verhältnis zur Whitelist und zu Dolibarr
+
+Es gibt jetzt zwei Wege, eine Karte zum Laden zu berechtigen:
+
+- `rfid_whitelist` in der Konfiguration (wie bisher) — gilt als geschäftlich
+- die Kartenverwaltung in der Web-UI (neu) — mit Einordnung
+
+Beide wirken parallel; bestehende Installationen ändern sich nicht. Die Zuordnung
+**welcher Mitarbeiter** abgerechnet wird, bleibt wie gehabt Sache von Dolibarr
+(`llx_wallbox_rfid`). Das Addon entscheidet nur, **ob** übertragen wird.
+
+### Datenschutz
+
+Gespeichert wird ausschließlich der **SHA-256-Hash** der Karte plus der von dir
+vergebene Name. Der Klartext der Karten-ID erscheint **nur während des
+Lernmodus**, nur im Arbeitsspeicher, höchstens 10 Minuten lang, und verschwindet
+beim Beenden des Modus sofort. Die gerenderte Kartenliste zeigt nur den
+Hash-Präfix.
+
+## Haftender RFID-Wert (`rfid_hold_seconds`)
+
+Manche Quellen halten den zuletzt gelesenen Tag **dauerhaft**. Die
+Alfen-HA-Integration etwa leitet ihn aus dem **Transaktions-Log** der Wallbox ab,
+also aus dem letzten *abgeschlossenen* Ladevorgang — der Wert bleibt deshalb
+stehen, bis eine neue Transaktion auftaucht, und nicht nur solange jemand die
+Karte vorhält. Dasselbe gilt für Modbus-Register, die den letzten Tag speichern.
+
+Für die Zustandslogik ist das irreführend. Mit `rfid_hold_seconds: 1.0` setzt
+ExpenseCharge den Tag nach einer Sekunde selbst auf „kein Tag" zurück.
+
+```yaml
+rfid_hold_seconds: 1.0
+```
+
+Default ist `0` (aus), damit bestehende Installationen unverändert bleiben. Im
+Modbus-Betrieb ist der Default `1.0`, weil haftende Register dort die Regel sind.
+
+**Bewusste Einschränkung:** Nach dem Reset löst derselbe Wert **nicht** erneut
+aus. Bei einem haftenden Sensor ist „alte Karte klebt noch" nicht von „dieselbe
+Karte erneut vorgehalten" zu unterscheiden — sonst startete nach jeder Ladung
+eine Phantom-Session. Eine zweite Ladung derselben Karte erkennt stattdessen der
+Zustandssensor; zugeordnet wird sie dem zuletzt gesehenen Tag.
+
 ## Standalone in Docker — ohne Home Assistant
 
 ExpenseCharge läuft auch als einfacher Docker-Container, etwa auf einem Raspberry Pi.

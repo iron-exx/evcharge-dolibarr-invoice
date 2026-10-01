@@ -49,6 +49,7 @@ Jede Ladung landet sofort als Position im Spesenreport des Mitarbeiters. Pro Mon
 - Restart-Recovery: laufende Sessions werden beim Neustart behandelt
 - Auto-Retry mit Exponential-Backoff bei API-Fehlern
 - Web-UI (Ingress): manuelle Sessions, History, CSV-Export
+- **Kartenverwaltung mit Lernmodus**: Karte an die Wallbox halten, in der Oberfläche benennen und einordnen — **geschäftlich** (wird abgerechnet) oder **privat** (bleibt lokal, erreicht Dolibarr nie)
 
 ### Dolibarr-Modul
 - Direkter Insert in `llx_expensereport` / `llx_expensereport_det` als Ausgabentyp `TF_OTHER` (Fallback: erste aktive Kategorie)
@@ -183,6 +184,8 @@ ExpenseCharge/
 │   ├── session_manager.py                   # SQLite + RFID
 │   ├── api_client.py                        # Dolibarr POST
 │   ├── web_server.py                        # Ingress UI
+│   ├── tag_learning.py                      # Lernmodus (flüchtiger Klartext)
+│   ├── tag_release.py                       # haftenden RFID-Wert zurücksetzen
 │   ├── utils/hash.py                        # SHA-256
 │   ├── icon.png / logo.png                  # Addon-Branding
 │   ├── Dockerfile

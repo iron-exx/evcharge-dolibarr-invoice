@@ -173,6 +173,15 @@ configuration:
       verwendet. Nur nötig als Fallback, falls das Addon nicht über den
       Supervisor authentifizieren kann.
 
+  rfid_hold_seconds:
+    name: "RFID-Haltezeit (Sekunden)"
+    description: >-
+      0 = aus (Standard). Manche Quellen halten den zuletzt gelesenen Tag
+      dauerhaft — die Alfen-Integration leitet ihn aus dem Transaktions-Log
+      ab, also aus dem letzten abgeschlossenen Ladevorgang. Dann bleibt der
+      Wert stehen und bringt die Zustandserkennung durcheinander. Mit einem
+      Wert größer 0 setzt ExpenseCharge den Tag nach dieser Zeit selbst auf
+      "kein Tag" zurück. 1.0 ist ein guter Startwert.
   min_session_kwh:
     name: "Mindest-kWh pro Session"
     description: >-

@@ -171,6 +171,14 @@ configuration:
       Only needed as a fallback if the addon cannot authenticate via the
       supervisor.
 
+  rfid_hold_seconds:
+    name: "RFID hold time (seconds)"
+    description: >-
+      0 = off (default). Some sources keep the last tag indefinitely — the
+      Alfen integration derives it from the transaction log, i.e. from the
+      last COMPLETED charging session. The value then sticks and confuses
+      state detection. With a value above 0, ExpenseCharge resets the tag to
+      "no tag" itself after that time. 1.0 is a good starting point.
   min_session_kwh:
     name: "Minimum kWh per session"
     description: >-

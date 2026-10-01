@@ -94,6 +94,14 @@ options:
   # Nur nötig, falls SUPERVISOR_TOKEN nicht verfügbar ist (Normalfall: leer lassen)
   ha_token: ""
 
+  # ── Haftender RFID-Wert ────────────────────────────────────────────────
+  # 0 = aus (Standard, Verhalten wie bisher).
+  # Manche Quellen halten den letzten Tag dauerhaft — die Alfen-Integration
+  # leitet ihn z.B. aus dem Transaktions-Log ab, also aus dem letzten
+  # ABGESCHLOSSENEN Ladevorgang. Dann setzt das Addon den Wert nach dieser
+  # Zeit selbst auf "kein Tag" zurück. 1.0 ist ein guter Startwert.
+  rfid_hold_seconds: 0
+
   # Mindest-kWh, ab dem eine Session als echte Ladung gilt (sonst "discarded")
   min_session_kwh: 0.05
 
@@ -140,6 +148,7 @@ schema:
   pause_keywords:
     - "str"
   ha_token: "password"
+  rfid_hold_seconds: "float(0,60)"
   min_session_kwh: "float"
   max_session_hours: "float"
   api:
