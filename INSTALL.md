@@ -138,6 +138,48 @@ Checkliste:
 Details, Herstellertabelle und Sicherheitshinweise:
 [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
 
+## 3.5 — Variante Standalone: Docker ohne Home Assistant
+
+Wer kein Home Assistant hat oder will, überspringt Schritt 3 komplett und fährt
+ExpenseCharge als einfachen Container, z.B. auf einem Raspberry Pi (64-Bit-OS).
+
+Das funktioniert **nur** mit `session_source: ocpp` — ohne HA gibt es keine Sensoren,
+die die Betriebsart `ha_sensors` auslesen könnte.
+
+```bash
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+cd ExpenseCharge/wallbox-dolibarr
+
+mkdir -p data
+cp options.standalone.example.json data/options.json
+$EDITOR data/options.json       # Charge-Point-ID, Karten, Dolibarr-URL + Token
+
+docker compose up -d
+docker compose logs -f
+```
+
+Erwartete Logzeilen:
+
+```
+Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
+OCPP-Zentralserver lauscht auf Port 9000
+```
+
+Dann weiter wie in Abschnitt 3.4 ab Schritt 3: Wallbox auf `ws://<host-ip>:9000/`
+stellen, Log lesen, die gemeldete Charge-Point-ID in `ocpp_charge_points` eintragen,
+`docker compose restart`.
+
+**Drei Punkte, die hier anders sind als im Addon:**
+
+- `TZ` muss gesetzt sein (macht das Compose-File, Default `Europe/Berlin`). Fehlt sie,
+  laufen die Zeitstempel in UTC und eine Ladung am Monatsletzten landet im falschen
+  Abrechnungsmonat.
+- Die Web-UI hat **keinen** Login — im Addon schützt sie der HA-Ingress. Das
+  Compose-File bindet sie deshalb an `127.0.0.1:8099`. Von außen nur über einen
+  Reverse-Proxy mit eigener Authentifizierung.
+- `./data` muss als Volume bestehen bleiben: darin liegen `options.json` und die
+  SQLite-Datenbank mit noch nicht übertragenen Ladungen.
+
 ## 4 — Funktionsprüfung (End-to-End)
 
 1. Karte an die Wallbox halten → Ladevorgang starten.

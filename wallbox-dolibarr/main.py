@@ -864,9 +864,13 @@ async def main():
     ha_token = supervisor_token or config_ha_token
     if not ha_token:
         _LOGGER.error(
-            "Kein HA-Token verfügbar! Bitte Long-Lived Access Token unter "
-            "Einstellungen → Profil → Langlebige Zugriffstoken erstellen "
-            "und als 'ha_token' in der Addon-Konfiguration eintragen."
+            "Kein HA-Token verfügbar! Zwei Möglichkeiten: (1) Mit Home Assistant — "
+            "Long-Lived Access Token unter Einstellungen → Profil → Langlebige "
+            "Zugriffstoken erstellen und als 'ha_token' eintragen. "
+            "(2) Ohne Home Assistant (z.B. nur Docker) — session_source auf \"ocpp\" "
+            "setzen: dann verbindet sich die Wallbox direkt mit diesem Container und "
+            "es wird gar kein Home Assistant gebraucht. Die Betriebsart "
+            "\"ha_sensors\" liest HA-Sensoren und funktioniert ohne HA nicht."
         )
     else:
         token_src = 'SUPERVISOR_TOKEN' if supervisor_token else 'ha_token (Konfiguration)'

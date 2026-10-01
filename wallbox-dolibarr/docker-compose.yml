@@ -1,0 +1,47 @@
+# ExpenseCharge standalone — ohne Home Assistant, z.B. auf einem Raspberry Pi.
+#
+# Funktioniert NUR mit session_source: "ocpp". Die Betriebsart "ha_sensors"
+# liest Home-Assistant-Sensoren und braucht zwingend HA; standalone verbindet
+# sich die Wallbox direkt per OCPP mit diesem Container.
+#
+#   mkdir -p data && cp options.standalone.example.json data/options.json
+#   $EDITOR data/options.json          # Wallbox-ID, Karten, Dolibarr-Zugang
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Raspberry Pi: 64-Bit-OS nötig (aarch64). Für 32-Bit (armv7) gibt es kein
+# Base-Image — siehe build.yaml.
+
+services:
+  expensecharge:
+    container_name: expensecharge
+    build:
+      context: .
+      args:
+        # Multi-Arch-Basis; für einen festgenagelten Build:
+        #   amd64   → ghcr.io/home-assistant/amd64-base:3.23
+        #   aarch64 → ghcr.io/home-assistant/aarch64-base:3.23
+        BUILD_FROM: "${BUILD_FROM:-ghcr.io/home-assistant/base:3.23}"
+    restart: unless-stopped
+
+    environment:
+      # OHNE TZ laufen alle Zeitstempel in UTC — dann landet eine Ladung
+      # kurz vor Monatsende im falschen Abrechnungsmonat. Immer setzen.
+      TZ: "${TZ:-Europe/Berlin}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+    volumes:
+      # Enthält options.json (Konfiguration) und sessions.db (SQLite-Puffer).
+      # Ohne dieses Volume sind nach jedem Neustart alle noch nicht
+      # übertragenen Ladungen verloren.
+      - ./data:/data
+
+    ports:
+      # OCPP-Zentralserver — hier verbindet sich die Wallbox.
+      # Muss im LAN erreichbar sein, darf NIE ins Internet.
+      - "9000:9000"
+      # Web-UI. Im HA-Betrieb schützt der Ingress sie mit dem HA-Login;
+      # standalone gibt es diesen Schutz NICHT. Deshalb nur lokal gebunden.
+      # Von außen erreichbar machen? Nur hinter einem Reverse-Proxy mit
+      # eigener Authentifizierung.
+      - "127.0.0.1:8099:8099"

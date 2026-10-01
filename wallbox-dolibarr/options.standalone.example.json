@@ -1,0 +1,29 @@
+{
+  "log_level": "INFO",
+
+  "session_source": "ocpp",
+
+  "ocpp_charge_points": [
+    {
+      "id": "ACE0123456",
+      "password": "bitte-mindestens-16-zeichen",
+      "wallbox_id": "garage"
+    }
+  ],
+  "ocpp_heartbeat_interval": 300,
+  "ocpp_apply_recommended_config": true,
+
+  "rfid_whitelist": [
+    "EFCD083E"
+  ],
+
+  "min_session_kwh": 0.05,
+  "max_session_hours": 24,
+
+  "api": {
+    "dolibarr_url": "https://erp.example.com",
+    "api_token": "gemeinsames-token-identisch-mit-dem-dolibarr-modul",
+    "transmit_interval": 300,
+    "timeout": 30
+  }
+}

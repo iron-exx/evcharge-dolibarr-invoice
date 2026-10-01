@@ -157,6 +157,83 @@ verändert.
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
   abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.
 
+## Standalone in Docker — ohne Home Assistant
+
+ExpenseCharge läuft auch als einfacher Docker-Container, etwa auf einem Raspberry Pi.
+Beide Wege bleiben verfügbar: **als HA-Addon** wie bisher, **oder** standalone.
+
+> **Nur mit `session_source: ocpp`.** Ohne Home Assistant gibt es keine HA-Sensoren,
+> also kann die Betriebsart `ha_sensors` dort nicht funktionieren. Im OCPP-Betrieb
+> braucht ExpenseCharge Home Assistant ohnehin nicht — die Wallbox verbindet sich
+> direkt mit dem Container.
+
+### Was sich gegenüber dem Addon-Betrieb unterscheidet
+
+| | HA-Addon | Standalone Docker |
+|---|---|---|
+| Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `data/options.json` selbst anlegen |
+| Betriebsarten | `ha_sensors` **und** `ocpp` | **nur** `ocpp` |
+| Web-UI-Schutz | HA-Ingress mit HA-Login | **kein Schutz** — nur an `127.0.0.1` binden |
+| Zeitzone | setzt der Supervisor | **selbst per `TZ` setzen** |
+| Updates | HA-Addon-Store | `docker compose pull` bzw. neu bauen |
+
+### Einrichtung
+
+```bash
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+cd ExpenseCharge/wallbox-dolibarr
+
+mkdir -p data
+cp options.standalone.example.json data/options.json
+$EDITOR data/options.json          # Charge-Point-ID, Karten, Dolibarr-Zugang
+
+docker compose up -d
+docker compose logs -f
+```
+
+Im Log muss stehen:
+
+```
+Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
+OCPP-Zentralserver lauscht auf Port 9000
+```
+
+Danach die Wallbox auf `ws://<host-ip>:9000/` stellen (Rest wie im Abschnitt
+[Betriebsart OCPP](#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen):
+Log lesen, gemeldete ID in `ocpp_charge_points` eintragen, neu starten).
+
+### Drei Dinge, die standalone leicht schiefgehen
+
+1. **`TZ` nicht gesetzt** → alle Zeitstempel in UTC. Eine Ladung am Monatsletzten um
+   23:30 landet dann im Folgemonat. Das Compose-File setzt `TZ` auf `Europe/Berlin`;
+   per `TZ=...` in einer `.env` oder in der Umgebung überschreiben.
+2. **Web-UI offen im Netz.** Im Addon-Betrieb sitzt der HA-Ingress mit Login davor;
+   standalone gibt es das nicht. Das Compose-File bindet die UI daher an
+   `127.0.0.1:8099`. Wer sie von außen braucht, stellt einen Reverse-Proxy mit eigener
+   Authentifizierung davor — **nie** einfach `8099:8099`.
+3. **`./data` nicht gemountet.** Darin liegen `options.json` **und** `sessions.db`.
+   Ohne Volume sind nach jedem Container-Neustart alle noch nicht an Dolibarr
+   übertragenen Ladungen verloren.
+
+### Raspberry Pi
+
+Ein **64-Bit-Betriebssystem** ist nötig (Raspberry Pi OS 64-bit, Ubuntu arm64 — also
+Pi 4, Pi 5 oder Pi 3 mit 64-Bit-Image). Für 32-Bit (`armv7`) gibt es kein Base-Image,
+siehe `build.yaml`. Der Ressourcenbedarf ist gering: Python-Prozess plus SQLite, kein
+Browser, keine Datenbank-Engine.
+
+### Betrieb
+
+```bash
+docker compose logs -f                 # Live-Log
+docker compose restart                 # nach Änderung an data/options.json
+docker compose down                    # stoppen (data/ bleibt erhalten)
+sqlite3 data/sessions.db "SELECT id,status,total_kwh FROM sessions ORDER BY id DESC LIMIT 10;"
+```
+
+Die Konfiguration wird **beim Start** gelesen — nach jeder Änderung an
+`data/options.json` ist ein `docker compose restart` nötig.
+
 ## Wallbox-Profile (herstellerunabhängige Konfiguration)
 
 `wallbox_profile` schaltet zwischen zwei Betriebsarten um:

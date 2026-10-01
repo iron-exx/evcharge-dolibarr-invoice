@@ -58,13 +58,27 @@ Jede Ladung landet sofort als Position im Spesenreport des Mitarbeiters. Pro Mon
 - RFID-Zuordnung endgültig löschbar (kein Soft-Delete/Reaktivierung)
 - Auth per gemeinsamem API-Token (Header `DOLAPIKEY`), RFID nur als SHA-256-Hash gespeichert (Dolibarr 20+)
 
+## Betriebsvarianten
+
+ExpenseCharge läuft auf zwei Wegen — beide werden unterstützt:
+
+| | Als Home-Assistant-Addon | Standalone in Docker |
+|---|---|---|
+| Wofür | HA ist schon im Haus; Sensoren sollen genutzt werden | minimal, z.B. auf einem Raspberry Pi; kein HA vorhanden oder gewollt |
+| Betriebsarten | `ha_sensors` (HA-Sensoren) **und** `ocpp` | **nur** `ocpp` (die Wallbox verbindet sich direkt) |
+| Einrichtung | Addon-Store, Konfiguration in der HA-Oberfläche | `docker compose up -d` mit eigener `data/options.json` |
+| Web-UI | HA-Ingress, durch HA-Login geschützt | nur an `127.0.0.1` gebunden — kein eingebauter Schutz |
+
+Standalone-Anleitung: [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant)
+
 ## Voraussetzungen
 
 | Komponente | Version |
 |---|---|
 | Dolibarr | 20.x – 22.x |
-| Home Assistant | 2024.x+ mit Supervisor |
-| Python | 3.12+ (im HA-Container) |
+| Home Assistant | 2024.x+ mit Supervisor — **nur für die Addon-Variante** |
+| Docker | für die Standalone-Variante; Raspberry Pi braucht ein 64-Bit-OS |
+| Python | 3.12+ (im Container mitgeliefert) |
 
 ## Schnellinstallation
 
@@ -164,7 +178,7 @@ ExpenseCharge/
 │   ├── class/api_wallboxbilling.class.php   # REST-API (Dolibarr Web-Services)
 │   ├── core/modules/modWallboxbilling.class.php
 │   └── langs/de_DE/wallboxbilling.lang
-├── wallbox-dolibarr/                        # HA-Addon
+├── wallbox-dolibarr/                        # Addon bzw. Standalone-Container
 │   ├── main.py                              # Hauptloop + Websocket
 │   ├── session_manager.py                   # SQLite + RFID
 │   ├── api_client.py                        # Dolibarr POST
@@ -172,6 +186,8 @@ ExpenseCharge/
 │   ├── utils/hash.py                        # SHA-256
 │   ├── icon.png / logo.png                  # Addon-Branding
 │   ├── Dockerfile
+│   ├── docker-compose.yml                   # Standalone-Betrieb ohne HA
+│   ├── options.standalone.example.json      # Beispielkonfiguration dafür
 │   └── config.yaml
 └── module_wallboxbilling-*.zip              # Build-Artefakte der Dolibarr-Module
 ```
