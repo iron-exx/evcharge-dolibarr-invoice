@@ -53,8 +53,13 @@ COPY api_client.py      /usr/local/bin/api_client.py
 COPY session_manager.py /usr/local/bin/session_manager.py
 COPY web_server.py      /usr/local/bin/web_server.py
 COPY wallbox_profile.py /usr/local/bin/wallbox_profile.py
+COPY app_settings.py    /usr/local/bin/app_settings.py
+COPY tag_release.py     /usr/local/bin/tag_release.py
+COPY tag_learning.py    /usr/local/bin/tag_learning.py
 COPY utils/             /usr/local/bin/utils/
 COPY ocpp_server/       /usr/local/bin/ocpp_server/
+COPY modbus_source/     /usr/local/bin/modbus_source/
+COPY alfen_source/      /usr/local/bin/alfen_source/
 RUN chmod a+x /usr/local/bin/main.py
 
 CMD ["/usr/bin/with-contenv", "python3", "/usr/local/bin/main.py"]

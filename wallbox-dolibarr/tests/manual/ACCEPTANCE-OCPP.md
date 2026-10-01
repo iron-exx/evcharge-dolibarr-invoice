@@ -72,6 +72,47 @@ Ergänzend außerhalb der Szenarien geprüft:
 - [ ] Parallelbetrieb mit bestehender HA-Alfen-Integration (nur Information)
 - [ ] Rollback: `session_source: ha_sensors` + altes Wallbox-Backend → Verhalten wie vorher
 
+## Nach dem OCPP-Teil ergänzt — ebenfalls abzunehmen
+
+Seit diesem Protokoll sind drei weitere Datenquellen und die Kartenverwaltung
+dazugekommen. Was davon nur mit Hardware prüfbar ist:
+
+### Alfen HTTPS-API (`session_source: alfen_http`)
+
+- [ ] Anmeldung an der echten Wallbox mit Installateur- bzw. Admin-Zugang
+- [ ] **Format der Transaktions-Logzeilen gegen die echte Box prüfen.** Es ist aus
+      dem Parser der HACS-Integration abgeleitet und nicht verifiziert. Einmal
+      `curl -k "https://<ip>/api/transactions?offset=0"` nach der Anmeldung und
+      eine `txstart`/`txstop`-Zeile mit `alfen_source/transactions.py` abgleichen
+- [ ] Zählerstand aus `2221_22` gegen die Anzeige der Wallbox vergleichen
+- [ ] Eine echte Ladung: wird sie genau einmal importiert, mit korrekten kWh,
+      Zeitstempeln und Karte?
+- [ ] Mehrere Durchläufe: bleibt es bei einer Abrechnung? (Idempotenz)
+- [ ] Steckdose 2 einer Eve Double (`param_energy: 2221_32`, `param_state: 2502_1`)
+
+### Modbus TCP (`session_source: modbus`)
+
+- [ ] Registeradressen aus dem Alfen-Modbus-Handbuch übertragen und den
+      Zählerstand gegen die Wallbox-Anzeige prüfen
+- [ ] `word_order` verifizieren — bei falscher Reihenfolge steht ein unsinniger
+      Zählerstand in der Oberfläche
+- [ ] Parallelbetrieb mit einem Cloud-Backend des Herstellers (das ist der Zweck
+      dieser Quelle)
+
+### Kartenverwaltung und Lernmodus
+
+- [ ] Lernmodus an der echten Wallbox: Karte vorhalten, erscheint sie mit ihrer ID?
+- [ ] Als geschäftlich einordnen → Ladung erscheint in Dolibarr
+- [ ] Als privat einordnen → Ladung bleibt lokal, erreicht Dolibarr **nie**
+- [ ] Nicht eingeordnete Karte: kann sie wirklich nicht laden (nur OCPP-Betrieb)?
+- [ ] Nach dem Beenden des Lernmodus ist der Klartext verschwunden
+
+### Oberfläche
+
+- [ ] Sichtprüfung aller vier Tabs im Browser (Erfassen, Verlauf, Karten, System)
+- [ ] Tagesdiagramm mit echten Daten: Balkenhöhen plausibel, Tooltips lesbar
+- [ ] Tab System: zeigt er die tatsächlich wirksame Konfiguration?
+
 ## Weitere offene Punkte
 
 - [ ] `docker build` gegen `ghcr.io/home-assistant/amd64-base:3.23`; erwartet im Build-Log:
