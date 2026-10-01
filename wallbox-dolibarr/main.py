@@ -51,6 +51,8 @@ from tag_learning import LearnBuffer
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
+from modbus_source.poller import ModbusPoller
+from modbus_source.settings import ModbusConfigError, resolve_modbus_settings
 
 # Logging Setup (D-17, D-20)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -841,6 +843,65 @@ async def run_ocpp_mode(settings) -> None:
     await server.serve_forever()
 
 
+def build_modbus_poller(settings) -> ModbusPoller:
+    """Verdrahtet den Modbus-Poller mit der bestehenden Session-Logik.
+
+    Die gelesenen Register werden unter den Entity-IDs des Wallbox-Profils
+    gemeldet — damit landet alles in derselben sensor_callback wie im
+    Home-Assistant-Pfad, und die ganze getestete Auth- und Zustandslogik
+    (Whitelist, Debounce, auth_mode, state_mode) gilt unverändert.
+    """
+    entity_ids = {
+        'energy': profile.sensor_energy,
+        'state': profile.sensor_state,
+        'rfid': profile.sensor_rfid,
+        'power': profile.power_sensor or 'modbus.power',
+    }
+    return ModbusPoller(settings, entity_ids=entity_ids,
+                        callback=lambda entity_id, state: sensor_callback(entity_id, state))
+
+
+async def run_modbus_mode(settings) -> None:
+    """Betriebsart session_source=modbus: kein HA-Websocket, die Wallbox wird
+    direkt abgefragt."""
+    poller = build_modbus_poller(settings)
+
+    # Restart-Recovery wie im HA-Pfad: der Zählerstand kommt beim ersten
+    # Durchlauf von der Wallbox, also erst lesen, dann aufräumen.
+    await poller.poll_once()
+    await check_startup_session()
+
+    asyncio.create_task(stale_session_guard_modbus())
+    if api_client:
+        asyncio.create_task(periodic_transmission())
+    asyncio.create_task(start_web_server(session_manager, current_config, api_state, port=8099))
+    await poller.run()
+
+
+async def stale_session_guard_modbus():
+    """Sicherung gegen hängende Sessions im Modbus-Betrieb.
+
+    Anders als bei OCPP ist hier kein verspäteter Stop der Wallbox zu erwarten:
+    der Zustand wird gepollt. Eine Session, die trotzdem ewig offen bleibt,
+    wird daher wie im HA-Pfad geschlossen — mit dem letzten gelesenen Zähler.
+    """
+    max_hours = float(current_config.get("max_session_hours", 24))
+    while True:
+        await asyncio.sleep(300)
+        try:
+            active = session_manager.get_active_session()
+            if not active:
+                continue
+            age_h = (datetime.now()
+                     - datetime.fromisoformat(active['start_time'])).total_seconds() / 3600.0
+            if age_h >= max_hours:
+                _LOGGER.warning("Session #%s läuft seit %.1f h — wird geschlossen",
+                                active['id'], age_h)
+                await _end_active_session('stale_guard_modbus')
+        except Exception as exc:
+            _LOGGER.warning("stale_session_guard_modbus Fehler: %s", exc)
+
+
 async def main():
     """Hauptschleife (D-03, D-10, D-11) - erweitert für Session-Tracking und API-Transmission"""
     global session_manager, current_config, ha_ws, api_client, api_state, profile, _tag_releaser
@@ -901,6 +962,17 @@ async def main():
         _tag_releaser = TagReleaser(hold_seconds=hold)
         _LOGGER.info("RFID-Haltezeit aktiv: Tag wird %.1f s nach Erkennung selbst "
                      "auf \"kein Tag\" zurückgesetzt", hold)
+
+    # Modbus TCP: die Wallbox wird direkt abgefragt. Eine unbrauchbare
+    # Registerkarte lässt das Addon absichtlich abbrechen, statt mit
+    # Standardwerten 0 kWh abzurechnen.
+    modbus_settings = resolve_modbus_settings(current_config)
+    if modbus_settings.enabled:
+        _LOGGER.info("Betriebsart: Modbus TCP (%s:%s, Unit %s, alle %.0f s)",
+                     modbus_settings.host, modbus_settings.port,
+                     modbus_settings.unit_id, modbus_settings.poll_interval)
+        await run_modbus_mode(modbus_settings)
+        return
 
     ocpp_settings = resolve_ocpp_settings(current_config)
     if ocpp_settings.enabled:
