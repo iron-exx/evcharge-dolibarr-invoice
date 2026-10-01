@@ -12,6 +12,7 @@ Seiten:
 import csv
 import io
 import logging
+import calendar
 import html
 import sqlite3
 from datetime import datetime
@@ -58,6 +59,41 @@ html, body {
 .dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .dot-ok  { background: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
 .dot-err { background: var(--error);   box-shadow: 0 0 0 3px rgba(239,68,68,.2); }
+/* ── Diagramm ── */
+.chart { margin: 4px 0 18px; }
+.chart-svg { width: 100%; height: 190px; display: block; overflow: visible; }
+.chart-svg .bar rect { transition: opacity .12s; }
+.chart-svg .bar:hover rect { opacity: .72; }
+.chart-svg .bar { cursor: default; }
+.chart-legend {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  margin-top: 8px; font-size: 11.5px; color: var(--muted);
+}
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.chart-empty {
+  padding: 26px 16px; margin: 4px 0 16px; text-align: center;
+  font-size: 13px; color: var(--dim);
+  border: 1px dashed var(--border); border-radius: 9px;
+}
+/* ── Kennzahlen ── */
+.kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+  background: var(--border); border: 1px solid var(--border);
+  border-radius: 9px; overflow: hidden; margin-bottom: 16px;
+}
+@media (max-width: 560px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpi { background: var(--surface2); padding: 12px 14px; }
+.kpi-lbl {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
+}
+.kpi-val {
+  font-size: 21px; font-weight: 700; line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-unit { font-size: 11px; font-weight: 600; color: var(--muted); margin-left: 5px; }
+.kpi-sub { font-size: 10.5px; color: var(--dim); margin-top: 2px; }
 /* ── Nav tabs ── */
 .nav {
   background: var(--surface); border-bottom: 1px solid var(--border);
@@ -770,6 +806,168 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
     return _base('tags', content, base_href=base_href)
 
 
+# ── Diagrammfarben ─────────────────────────────────────────────────────────
+# Gewählt für die dunkle Fläche (#1E293B) und mit dem Paletten-Validator
+# geprüft: Helligkeitsband L 0.48–0.67, Chroma ≥ 0.1, CVD-Trennung
+# ΔE 17.3 (Deutan) / 9.4 (Tritan), Normalsicht ΔE 24.6, Kontrast ≥ 3:1.
+# Bewusst NICHT die Statusfarben (warn/error) — die sind für Zustände
+# reserviert und dürfen keine Datenserie einfärben.
+SERIES_BUSINESS = '#199e70'      # Aqua, nah am Markenton
+SERIES_PRIVATE = '#9085e9'       # Violett
+_CHART_GRID = 'rgba(148,163,184,.18)'
+_CHART_AXIS = '#94A3B8'
+_STACK_GAP = 2.0          # Flächenspalt zwischen gestapelten Segmenten
+
+
+def _daily_buckets(rows, year, month):
+    """Sessions zu Tageseimern verrechnen.
+
+    Nur Ladungen mit belastbarer Energie: 'discarded' ist ~0 kWh und
+    'incomplete' hat einen unbekannten Zählerstand — beides würde das
+    Diagramm verfälschen.
+    """
+    days = calendar.monthrange(year, month)[1]
+    buckets = [{'day': d, 'business': 0.0, 'private': 0.0, 'total': 0.0}
+               for d in range(1, days + 1)]
+
+    for row in rows:
+        status = (row.get('status') or '').lower()
+        if status not in ('completed', 'private'):
+            continue
+        raw = row.get('start_time') or ''
+        try:
+            dt = datetime.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            continue
+        if dt.year != year or dt.month != month:
+            continue
+        try:
+            kwh = float(row.get('total_kwh') or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if kwh <= 0:
+            continue
+        bucket = buckets[dt.day - 1]
+        key = 'private' if status == 'private' else 'business'
+        bucket[key] += kwh
+        bucket['total'] += kwh
+    return buckets
+
+
+def _nice_ceiling(value):
+    """Nächster runder Achsen-Höchstwert über value (1/2/5 × 10^n)."""
+    if value <= 0:
+        return 1.0
+    import math
+    exp = math.floor(math.log10(value))
+    base = 10 ** exp
+    for factor in (1, 2, 5, 10):
+        if value <= factor * base:
+            return float(factor * base)
+    return float(10 * base)
+
+
+def _build_daily_chart(rows, year, month):
+    """Gestapeltes Tagesbalken-Diagramm als Inline-SVG.
+
+    Inline und ohne Bibliothek, weil die Oberfläche im HA-Ingress auch ohne
+    Internetzugang funktionieren muss.
+    """
+    buckets = _daily_buckets(rows, year, month)
+    filled = [b for b in buckets if b['total'] > 0]
+    if not filled:
+        return ('<div class="chart-empty">Keine abgerechneten Ladungen in diesem Monat — '
+                'sobald welche vorliegen, erscheint hier der Tagesverlauf.</div>')
+
+    has_private = any(b['private'] > 0 for b in filled)
+    peak = max(filled, key=lambda b: b['total'])
+    y_max = _nice_ceiling(max(b['total'] for b in filled))
+
+    # Geometrie: feste Höhe, Breite über viewBox skaliert (responsiv ohne JS).
+    w, h = 720.0, 190.0
+    pad_l, pad_r, pad_t, pad_b = 42.0, 10.0, 16.0, 26.0
+    plot_w = w - pad_l - pad_r
+    plot_h = h - pad_t - pad_b
+    days = len(buckets)
+    slot = plot_w / days
+    bar_w = max(3.0, min(14.0, slot - 2.0))      # 2px Fläche zwischen Balken
+
+    def y_of(value):
+        return pad_t + plot_h - (value / y_max) * plot_h
+
+    parts = []
+
+    # Gitter und Achsenbeschriftung — bewusst zurücktretend.
+    for i in range(5):
+        value = y_max * i / 4
+        y = y_of(value)
+        parts.append(f'<line x1="{pad_l:.1f}" y1="{y:.1f}" x2="{w - pad_r:.1f}" y2="{y:.1f}" '
+                     f'stroke="{_CHART_GRID}" stroke-width="1"/>')
+        parts.append(f'<text x="{pad_l - 7:.1f}" y="{y + 3.5:.1f}" text-anchor="end" '
+                     f'font-size="9.5" fill="{_CHART_AXIS}">{value:.0f}</text>')
+
+    # Tagesachse: nur jeder 5. Tag, sonst kollidieren die Zahlen.
+    for b in buckets:
+        if b['day'] == 1 or b['day'] % 5 == 0:
+            x = pad_l + (b['day'] - 0.5) * slot
+            parts.append(f'<text x="{x:.1f}" y="{h - 9:.1f}" text-anchor="middle" '
+                         f'font-size="9.5" fill="{_CHART_AXIS}">{b["day"]}</text>')
+
+    for b in buckets:
+        if b['total'] <= 0:
+            continue
+        x = pad_l + (b['day'] - 0.5) * slot - bar_w / 2
+        base_y = pad_t + plot_h
+        tip = f'{b["day"]}. {_month_name(month)}: {b["total"]:.3f} kWh'
+        if b['private'] > 0 and b['business'] > 0:
+            tip += f' (geschäftlich {b["business"]:.3f} · privat {b["private"]:.3f})'
+        elif b['private'] > 0:
+            tip += ' (privat)'
+
+        parts.append(f'<g class="bar"><title>{html.escape(tip)}</title>')
+        cursor = base_y
+        # Von unten stapeln: geschäftlich zuerst, privat darüber.
+        # STACK_GAP liegt ÜBER jedem Segment, damit sich zwei Farben nicht
+        # berühren — ohne den Spalt verschmelzen sie optisch zu einem Balken.
+        segments = [('business', SERIES_BUSINESS), ('private', SERIES_PRIVATE)]
+        drawn = [(k, c) for k, c in segments if b[k] > 0]
+        for idx, (key, color) in enumerate(drawn):
+            raw_h = (b[key] / y_max) * plot_h
+            # Das obere Segment gibt den Spalt aus seiner eigenen Höhe her,
+            # damit die Gesamthöhe des Stapels maßstabsgetreu bleibt.
+            seg_h = max(1.0, raw_h - (_STACK_GAP if idx > 0 else 0.0))
+            top = cursor - seg_h
+            is_top = idx == len(drawn) - 1
+            radius = 3.0 if is_top else 0.0
+            parts.append(
+                f'<rect x="{x:.1f}" y="{top:.1f}" width="{bar_w:.1f}" height="{seg_h:.1f}" '
+                f'rx="{radius}" fill="{color}"/>')
+            cursor = top - _STACK_GAP
+        parts.append('</g>')
+
+    # Direkte Beschriftung nur für den Spitzentag — nicht auf jedem Balken.
+    peak_x = pad_l + (peak['day'] - 0.5) * slot
+    peak_y = y_of(peak['total'])
+    anchor = 'start' if peak['day'] <= 3 else ('end' if peak['day'] >= days - 2 else 'middle')
+    parts.append(f'<text class="bar-label" x="{peak_x:.1f}" y="{max(pad_t + 8, peak_y - 6):.1f}" '
+                 f'text-anchor="{anchor}" font-size="10.5" font-weight="700" '
+                 f'fill="var(--text)">{peak["total"]:.1f} kWh</text>')
+
+    legend = ''
+    if has_private:
+        legend = (
+            '<div class="chart-legend">'
+            f'<span><i style="background:{SERIES_BUSINESS}"></i>Geschäftlich</span>'
+            f'<span><i style="background:{SERIES_PRIVATE}"></i>Privat (nicht übertragen)</span>'
+            '</div>')
+
+    svg = (f'<svg viewBox="0 0 {w:.0f} {h:.0f}" preserveAspectRatio="none" '
+           f'class="chart-svg" role="img" '
+           f'aria-label="Tagesverlauf {_month_name(month)} {year} in Kilowattstunden">'
+           + ''.join(parts) + '</svg>')
+    return f'<div class="chart">{svg}{legend}</div>'
+
+
 def _build_history_page(session_manager, year, month, base_href=''):
     months = _db_months(session_manager.db_path)
 
@@ -852,6 +1050,13 @@ def _build_history_page(session_manager, year, month, base_href=''):
         table_html = '<div class="empty">Keine Sessions in diesem Monat</div>'
 
     export_url = f'export?year={year}&month={month}'
+    chart_html = _build_daily_chart(rows, year, month)
+    buckets = _daily_buckets(rows, year, month)
+    private_kwh = sum(b['private'] for b in buckets)
+    billed_kwh = sum(b['business'] for b in buckets)
+    active_days = sum(1 for b in buckets if b['total'] > 0)
+    best = max(buckets, key=lambda b: b['total']) if active_days else None
+
     content = f"""
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px">
@@ -859,6 +1064,29 @@ def _build_history_page(session_manager, year, month, base_href=''):
     <a href="{export_url}" class="btn-dl">{_ICO_DL} CSV exportieren</a>
   </div>
   <div class="month-tabs">{tabs_html}</div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-lbl">Abgerechnet</div>
+      <div class="kpi-val">{billed_kwh:.1f}<span class="kpi-unit">kWh</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Privat</div>
+      <div class="kpi-val">{private_kwh:.1f}<span class="kpi-unit">kWh</span></div>
+      <div class="kpi-sub">nicht übertragen</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Ladetage</div>
+      <div class="kpi-val">{active_days}<span class="kpi-unit">von {len(buckets)}</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-lbl">Stärkster Tag</div>
+      <div class="kpi-val">{(f'{best["total"]:.1f}' if best else '—')}<span class="kpi-unit">kWh</span></div>
+      <div class="kpi-sub">{(f'{best["day"]}. {_month_name(month)}' if best else '—')}</div>
+    </div>
+  </div>
+
+  {chart_html}
   {table_html}
 </div>"""
 
