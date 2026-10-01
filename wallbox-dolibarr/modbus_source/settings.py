@@ -82,6 +82,43 @@ def _int(raw, name: str, default: int) -> int:
         raise ModbusConfigError(f"modbus.{name}: {raw!r} ist keine ganze Zahl")
 
 
+def _state_map(raw, name: str) -> Dict[int, str]:
+    """Zahlencode → Text, in zwei Schreibweisen.
+
+    Dict  ({3: "Charging"}) ist die natürliche Form für eine handgeschriebene
+    options.json. Das Konfigurationsschema von Home Assistant kann ein Dict
+    mit beliebigen Schlüsseln aber nicht validieren — dafür gibt es die
+    Listenform ["3:Charging"]. Der Text darf selbst Doppelpunkte enthalten,
+    getrennt wird nur am ersten.
+    """
+    if not raw:
+        return {}
+
+    pairs = []
+    if isinstance(raw, dict):
+        pairs = list(raw.items())
+    elif isinstance(raw, (list, tuple)):
+        for entry in raw:
+            code, sep, text = str(entry).partition(':')
+            if not sep:
+                raise ModbusConfigError(
+                    f"modbus.registers.{name}.state_map: {entry!r} hat kein "
+                    f"'code:Text' — erwartet z.B. \"3:Charging\"")
+            pairs.append((code, text))
+    else:
+        raise ModbusConfigError(
+            f"modbus.registers.{name}.state_map muss eine Liste oder ein Objekt sein")
+
+    out = {}
+    for code, text in pairs:
+        try:
+            out[int(str(code).strip())] = str(text).strip()
+        except (TypeError, ValueError):
+            raise ModbusConfigError(
+                f"modbus.registers.{name}.state_map: {code!r} ist kein Zahlencode")
+    return out
+
+
 def _register(raw, name: str, default_type: str, default_count: int) -> RegisterSpec:
     if not isinstance(raw, dict):
         raise ModbusConfigError(f"modbus.registers.{name} muss ein Objekt sein")
@@ -112,13 +149,7 @@ def _register(raw, name: str, default_type: str, default_count: int) -> Register
     else:
         count = 2 if value_type in ('uint32', 'int32', 'float32') else 1
 
-    state_map = {}
-    for key, text in (raw.get('state_map') or {}).items():
-        try:
-            state_map[int(key)] = str(text)
-        except (TypeError, ValueError):
-            raise ModbusConfigError(
-                f"modbus.registers.{name}.state_map: {key!r} ist kein Zahlencode")
+    state_map = _state_map(raw.get('state_map'), name)
 
     return RegisterSpec(address=_int(raw['address'], f"registers.{name}.address", 0),
                         type=value_type, word_order=word_order, scale=scale,

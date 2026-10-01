@@ -72,6 +72,18 @@ ExpenseCharge läuft auf zwei Wegen — beide werden unterstützt:
 
 Standalone-Anleitung: [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant)
 
+### Datenquellen
+
+Woher die Ladevorgänge kommen, bestimmt `session_source`:
+
+| | `ha_sensors` (Default) | `ocpp` | `modbus` |
+|---|---|---|---|
+| Braucht Home Assistant | ja | nein | nein |
+| Zugriffskontrolle | nein | **ja** — unbekannte Karten laden nicht | nein |
+| Karten-ID | aus dem HA-Sensor | aus der OCPP-Transaktion | nur wenn die Wallbox sie in ein Register legt |
+| Parallel zum Cloud-Backend des Herstellers | ja | **nein** (Backend-Slot belegt) | **ja** |
+| Einrichtung | Sensoren zuordnen | URL in der Wallbox eintragen | Registeradressen übertragen |
+
 ## Voraussetzungen
 
 | Komponente | Version |

@@ -288,6 +288,22 @@ configuration:
     description: >-
       Wie viele Tage der Streifen auf der Startseite zeigt.
 
+  modbus:
+    name: "Modbus TCP"
+    description: >-
+      Nur bei session_source "modbus". host ist IP oder Hostname der Wallbox,
+      port meist 502, unit_id die Slave-Adresse, function_code 3 fuer Holding-
+      oder 4 fuer Input-Register. poll_interval in Sekunden (mindestens 1).
+      rfid_hold_seconds setzt einen haftenden Tag selbst zurueck, weil viele
+      Register die letzte Karte dauerhaft behalten. fixed_login ordnet alle
+      Ladungen einem Dolibarr-Benutzer zu, wenn die Wallbox keinen Tag liefert.
+      Unter registers muss mindestens energy stehen: address, type, word_order
+      (big oder little, je Hersteller unterschiedlich) und scale, etwa 0.001 um
+      Wh in kWh umzurechnen. state nimmt zusaetzlich state_map in der Form
+      "3:Charging", weil viele Wallboxen den Zustand als Zahl melden. Eine
+      unbrauchbare Registerkarte laesst das Addon absichtlich nicht starten,
+      statt stillschweigend 0 kWh abzurechnen.
+
   api:
     name: "Dolibarr-API-Konfiguration"
     description: >-

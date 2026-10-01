@@ -88,3 +88,41 @@ def test_fixed_login_for_wallboxes_without_a_card_reader():
     s = resolve_modbus_settings({**MINIMAL,
                                  "modbus": {**MINIMAL["modbus"], "fixed_login": "m.mustermann"}})
     assert s.fixed_login == "m.mustermann"
+
+
+def test_state_map_also_accepts_the_list_form():
+    """Das HA-Konfigurationsschema kann ein Dict mit beliebigen Schlüsseln nicht
+    validieren. Darum zusätzlich die Listenform "code:Text", die es kann."""
+    s = resolve_modbus_settings({"session_source": "modbus", "modbus": {
+        "host": "x",
+        "registers": {"energy": {"address": 100},
+                      "state": {"address": 200,
+                                "state_map": ["3:Charging", "2: Available", "4:Faulted"]}}}})
+    assert s.state.state_map == {3: "Charging", 2: "Available", 4: "Faulted"}
+    assert s.state.translate(2) == "Available"
+
+
+def test_list_form_rejects_entries_without_a_code():
+    import pytest as _pt
+    with _pt.raises(ModbusConfigError, match="state_map"):
+        resolve_modbus_settings({"session_source": "modbus", "modbus": {
+            "host": "x",
+            "registers": {"energy": {"address": 100},
+                          "state": {"address": 200, "state_map": ["Charging"]}}}})
+
+
+def test_list_form_rejects_a_non_numeric_code():
+    import pytest as _pt
+    with _pt.raises(ModbusConfigError, match="state_map"):
+        resolve_modbus_settings({"session_source": "modbus", "modbus": {
+            "host": "x",
+            "registers": {"energy": {"address": 100},
+                          "state": {"address": 200, "state_map": ["drei:Charging"]}}}})
+
+
+def test_text_may_contain_a_colon():
+    s = resolve_modbus_settings({"session_source": "modbus", "modbus": {
+        "host": "x",
+        "registers": {"energy": {"address": 100},
+                      "state": {"address": 200, "state_map": ["7:Fehler: Schütz"]}}}})
+    assert s.state.state_map == {7: "Fehler: Schütz"}

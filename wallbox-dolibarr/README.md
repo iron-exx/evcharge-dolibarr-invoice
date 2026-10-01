@@ -157,6 +157,104 @@ verändert.
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
   abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.
 
+## Betriebsart Modbus TCP
+
+Die dritte Datenquelle, neben `ha_sensors` und `ocpp`. Sie löst ein Problem, das
+OCPP nicht lösen kann: **eine Wallbox kennt nur ein OCPP-Backend.** Wer schon ein
+Cloud-Backend des Herstellers nutzt, kann den OCPP-Betrieb nicht verwenden —
+Modbus TCP läuft **parallel** dazu.
+
+### Wann Modbus, wann OCPP?
+
+| | OCPP 1.6J | Modbus TCP |
+|---|---|---|
+| Zugriffskontrolle | **ja** — unbekannte Karten laden nicht | nein, die Wallbox entscheidet selbst |
+| Karten-ID | kommt mit der Transaktion | **nur wenn die Wallbox sie in ein Register legt** |
+| Parallel zum Cloud-Backend | nein, Backend-Slot belegt | **ja** |
+| Zählerstände | `meterStart`/`meterStop` der Transaktion | gepollte Register |
+| Einrichtung | URL in der Wallbox eintragen | Registeradressen aus dem Handbuch übertragen |
+
+**Die wichtigste Einschränkung:** Modbus liefert nur, was die Wallbox in Register
+legt. Viele Hersteller geben Zählerstand und Zustand heraus, aber **nicht** die
+Karten-ID — bei einer Alfen steckt der Tag im Transaktions-Log, das nur über die
+HTTP-API erreichbar ist. Ohne Tag-Register gibt es keine Zuordnung pro Mitarbeiter;
+dann ordnet `fixed_login` alle Ladungen einem Dolibarr-Benutzer zu.
+
+### Einrichtung
+
+Es gibt **keine** herstellerübergreifende Registerkarte. Adressen, Datentypen und
+Skalierung legt jede Wallbox selbst fest — sie stehen im Modbus-Handbuch des
+Herstellers. Eine geratene Adresse würde falsche kWh abrechnen, deshalb ist hier
+alles explizit anzugeben, und eine unbrauchbare Konfiguration lässt das Addon
+**absichtlich nicht starten**.
+
+```yaml
+session_source: modbus
+
+modbus:
+  host: "192.168.1.50"       # IP der Wallbox
+  port: 502
+  unit_id: 1                 # Slave-Adresse
+  function_code: 3           # 3 = Holding-, 4 = Input-Register
+  poll_interval: 5           # Sekunden
+  rfid_hold_seconds: 1       # haftendes Tag-Register selbst zurücksetzen
+
+  registers:
+    energy:                  # PFLICHT — ohne Zähler keine Abrechnung
+      address: 320
+      type: "uint32"
+      word_order: "big"      # "little" bei vielen Herstellern!
+      scale: 0.001           # Wh → kWh
+
+    state:                   # optional, steuert Start und Ende
+      address: 1200
+      type: "uint16"
+      state_map:             # viele Wallboxen melden den Zustand als Zahl
+        - "2:Available"
+        - "3:Charging"
+        - "4:Faulted"
+
+    rfid:                    # optional — nur wenn die Wallbox den Tag liefert
+      address: 1500
+      type: "string"
+      count: 4               # 4 Register = 8 Zeichen
+```
+
+### Die drei Stolpersteine
+
+1. **`word_order`.** Innerhalb eines Registers ist Modbus immer Big-Endian, bei
+   32-Bit-Werten über zwei Register unterscheiden sich die Hersteller aber. Steht
+   ein unsinnig großer oder kleiner Zählerstand in der Oberfläche, ist fast immer
+   das die Ursache — einfach auf `little` umstellen.
+2. **`scale`.** OCPP schreibt Wh vor, Modbus schreibt nichts vor. Ein Register in
+   Wh braucht `0.001`, eines in kWh `1`, eines in Zehntel-kWh `0.1`. Ist der Faktor
+   um 1000 zu klein, landet jede Ladung unter `min_session_kwh` — sichtbar als
+   „unvollständig", nicht als falsche Abrechnung.
+3. **Haftendes Tag-Register.** Viele Wallboxen behalten die letzte Karte dauerhaft
+   im Register. `rfid_hold_seconds: 1` lässt das Addon den Rückfall auf „kein Tag"
+   selbst erzeugen. Dadurch ist allerdings eine **zweite Ladung derselben Karte
+   nicht am Tag erkennbar** — sie wird über den Zustandssensor erkannt und dem
+   zuletzt gesehenen Tag zugeordnet. `auth_mode: tag_toggle` funktioniert mit einem
+   haftenden Register nicht.
+
+### Fehlersuche
+
+Das Addon meldet jeden Lesefehler **einmal** und überträgt dann **nichts** — statt
+ersatzweise 0 zu liefern, was eine Ladung mit 0 kWh in die Abrechnung brächte:
+
+```
+Modbus-Lesefehler bei 192.168.1.50:502 — es wird NICHTS gemeldet,
+damit keine falschen kWh entstehen: Modbus-Exception 2 (ungültige
+Registeradresse) beim Lesen von 2 Register ab 320
+```
+
+`Modbus-Exception 2` heißt: die Adresse gibt es nicht — Handbuch prüfen, und
+bedenken, dass manche Hersteller ab 1 statt ab 0 zählen. `Exception 1` heißt, der
+Funktionscode passt nicht: `3` gegen `4` tauschen.
+
+Im Tab **System** steht die wirksame Konfiguration, inklusive Werten, die aus einem
+unzulässigen Bereich zurechtgezogen wurden.
+
 ## Karten verwalten: Lernmodus, geschäftlich und privat
 
 Im Tab **Karten** der Web-UI lassen sich RFID-Karten direkt am Gerät anlernen,

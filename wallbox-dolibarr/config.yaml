@@ -41,10 +41,34 @@ options:
   # "ha_sensors" → Ladevorgänge aus Home-Assistant-Sensoren (bisheriges Verhalten)
   # "ocpp"       → Addon ist selbst OCPP-1.6J-Zentralserver, Wallbox verbindet
   #                sich direkt (ws://<HA-IP>:<Port>/<Charge-Point-ID>)
+  # "modbus"     → Addon fragt die Wallbox per Modbus TCP ab. Laeuft PARALLEL
+  #                zu einem Cloud-Backend des Herstellers, anders als OCPP.
+  #                Die Registerkarte unten muss dann ausgefuellt werden.
   session_source: "ha_sensors"
   ocpp_charge_points: []
   ocpp_heartbeat_interval: 300
   ocpp_apply_recommended_config: false
+
+  # ── Modbus TCP (nur bei session_source: "modbus") ──────────────────────
+  # Es gibt KEINE herstelleruebergreifende Registerkarte — Adressen, Typen
+  # und Skalierung legt jede Wallbox selbst fest. Darum ist hier alles
+  # explizit anzugeben: eine geratene Adresse wuerde falsche kWh abrechnen.
+  # Mindestens "energy" ist Pflicht, der Rest ist optional.
+  modbus:
+    host: ""
+    port: 502
+    unit_id: 1
+    function_code: 3
+    timeout: 5
+    poll_interval: 5
+    rfid_hold_seconds: 1
+    fixed_login: ""
+    registers:
+      energy:
+        address: 0
+        type: "uint32"
+        word_order: "big"
+        scale: 0.001
 
   # ── Wallbox-Profil ─────────────────────────────────────────────────────
   # "alfen_eve"  → bewährtes Alfen-Verhalten, Auth-/Zustand-Logik fest verdrahtet
@@ -142,13 +166,45 @@ schema:
   wallbox_id: "str"
   rfid_whitelist:
     - "str"
-  session_source: "list(ha_sensors|ocpp)"
+  session_source: "list(ha_sensors|ocpp|modbus)"
   ocpp_charge_points:
     - id: "str"
       password: "password?"
       wallbox_id: "str?"
   ocpp_heartbeat_interval: "int(30,3600)"
   ocpp_apply_recommended_config: "bool"
+  modbus:
+    host: "str?"
+    port: "int(1,65535)?"
+    unit_id: "int(0,247)?"
+    function_code: "list(3|4)?"
+    timeout: "float(1,60)?"
+    poll_interval: "float(1,300)?"
+    rfid_hold_seconds: "float(0,60)?"
+    fixed_login: "str?"
+    registers:
+      energy:
+        address: "int(0,65535)"
+        type: "list(uint16|int16|uint32|int32|float32)?"
+        word_order: "list(big|little)?"
+        scale: "float?"
+      state:
+        address: "int(0,65535)?"
+        type: "list(uint16|int16|uint32|int32|float32|string)?"
+        word_order: "list(big|little)?"
+        scale: "float?"
+        count: "int(1,64)?"
+        state_map:
+          - "str?"
+      rfid:
+        address: "int(0,65535)?"
+        type: "list(uint16|int16|uint32|int32|float32|string)?"
+        count: "int(1,64)?"
+      power:
+        address: "int(0,65535)?"
+        type: "list(uint16|int16|uint32|int32|float32)?"
+        word_order: "list(big|little)?"
+        scale: "float?"
   wallbox_profile: "list(alfen_eve|custom)"
   sensor_rfid: "str"
   sensor_energy: "str"

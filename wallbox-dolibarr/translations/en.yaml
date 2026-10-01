@@ -282,6 +282,21 @@ configuration:
     description: >-
       How many days the strip on the start page covers.
 
+  modbus:
+    name: "Modbus TCP"
+    description: >-
+      Only with session_source "modbus". host is the wallbox IP or hostname,
+      port usually 502, unit_id the slave address, function_code 3 for holding
+      or 4 for input registers. poll_interval in seconds (at least 1).
+      rfid_hold_seconds resets a sticky tag itself, because many registers keep
+      the last card indefinitely. fixed_login attributes every session to one
+      Dolibarr user when the wallbox provides no tag. Under registers, energy is
+      mandatory: address, type, word_order (big or little, differs per vendor)
+      and scale, e.g. 0.001 to convert Wh to kWh. state additionally takes
+      state_map in the form "3:Charging", because many wallboxes report the
+      state as a number. An unusable register map deliberately stops the addon
+      from starting instead of silently billing 0 kWh.
+
   api:
     name: "Dolibarr API configuration"
     description: >-
