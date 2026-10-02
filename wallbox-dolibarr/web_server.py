@@ -28,16 +28,25 @@ _LOGGER = logging.getLogger(__name__)
 _CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  /* Markenpalette systemwerk (aus der Theme-Palette von www.systemwerk.de):
-     dunkles Petrol als Grund, Cyan für alles Interaktive, Orange als Akzent.
-     Orange ist dort die Signaturfarbe — es trägt hier Hervorhebung UND den
-     Zustand "wartet", damit nicht zwei warme Töne nebeneinander konkurrieren. */
-  --bg:       #01171F; --surface:  #05232C; --surface2: #073B4C;
-  --border:   #1E4A5A; --border-l: #3B5760;
-  --text:     #F2F6F6; --muted:    #8EA3AB; --dim:      #5C7580;
-  --primary:  #22A2DC; --primary-d:#0EB1D2; --primary-i:#01171F;
-  --accent:   #F19021; --accent-d: #C9741A;
-  --success:  #00D084; --warn:     #F19021; --error:    #CF2E2E;
+  /* Markenpalette systemwerk, abgelesen an www.systemwerk.de — und zwar an dem,
+     was die Seite tatsächlich ANWENDET, nicht an der Preset-Liste des Themes:
+       body { background: #ffffff; color: #01171F }
+       weiße Flächen 43x · Orange als Flächenfarbe 15x · hellgrau #F2F6F6 13x
+     Also hell: Weiß und Hellgrau als Grund, Petrol-Schwarz als Text, Orange
+     als Signaturfarbe, Cyan für alles Interaktive.
+     Statusfarben sind für Text auf Weiß abgedunkelt — das helle Orange der
+     Marke erreicht als Textfarbe keinen ausreichenden Kontrast. */
+  --bg:       #F8F9F9; --surface:  #FFFFFF; --surface2: #F2F6F6;
+  --border:   #E3E7E9; --border-l: #CFD6D9;
+  --text:     #01171F; --muted:    #545A5B; --dim:      #7C8B91;
+  /* Interaktiv-Cyan: #1B7EAC traegt dunklen Text mit 4.54:1; Buttons nutzen
+     das dunklere #157399, damit WEISSE Schrift darauf 5.32:1 erreicht.
+     Orange bleibt bei #F19021 — aber nur als FLAECHE mit Petrol-Text (7.65:1),
+     genau wie auf systemwerk.de. Als Schriftfarbe auf Weiss schafft es
+     keinen Wert ueber 2.4:1, dafuer gibt es --accent-t. */
+  --primary:  #1B7EAC; --primary-d:#157399; --primary-i:#FFFFFF;
+  --accent:   #F19021; --accent-t: #AF630B; --accent-i: #01171F;
+  --success:  #008756; --warn:     #AF630B; --error:    #B32424;
 }
 html, body {
   background: var(--bg); color: var(--text);
@@ -47,8 +56,8 @@ html, body {
 /* ── Header ── */
 .hdr {
   background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 0 rgba(34,162,220,.18);
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(1,23,31,.05);
   padding: 0 20px; height: 54px;
   display: flex; align-items: center; justify-content: space-between;
   position: sticky; top: 0; z-index: 50;
@@ -56,7 +65,7 @@ html, body {
 .hdr-left { display: flex; align-items: center; gap: 11px; }
 .hdr-logo {
   width: 32px; height: 32px;
-  background: linear-gradient(140deg, #22A2DC 0%, #0EB1D2 45%, #F19021 100%);
+  background: linear-gradient(140deg, #22A2DC 0%, #0EB1D2 42%, #F19021 100%);
   border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -87,7 +96,10 @@ html, body {
 /* ── Hero + Streifen ── */
 .hero-val {
   font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -.025em;
-  font-variant-numeric: tabular-nums; color: var(--accent);
+  font-variant-numeric: tabular-nums; color: var(--text);
+  /* Oranger Balken links: die Signaturfarbe als Flaeche, nicht als Schrift —
+     als Text erreicht sie auf Weiss nur 2.4:1. */
+  padding-left: 13px; border-left: 4px solid var(--accent);
 }
 .hero-unit { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 7px; }
 .hero-lbl { font-size: 12px; color: var(--muted); margin-top: 5px; }
@@ -138,8 +150,8 @@ html, body {
 }
 .nav a.active { color: var(--primary); border-bottom-color: var(--primary); }
 .nav a.active::after {
-  content: ""; width: 4px; height: 4px; border-radius: 50%;
-  background: var(--accent); margin-left: 1px;
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); margin-left: 2px;
 }
 .nav a:hover:not(.active) { color: var(--text); }
 /* ── Layout ── */
@@ -165,7 +177,7 @@ html, body {
 .card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 20px; margin-bottom: 14px;
-  box-shadow: inset 0 1px 0 rgba(242,246,246,.04);
+  box-shadow: 0 1px 2px rgba(1,23,31,.04);
 }
 .card-title {
   font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -194,11 +206,11 @@ select option { background: var(--surface); color: var(--text); }
 .btn-save {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; padding: 11px; margin-top: 17px;
-  background: var(--primary); color: var(--primary-i);
+  background: var(--primary-d); color: var(--primary-i);
   border: none; border-radius: 8px; letter-spacing: .01em;
   font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
 }
-.btn-save:hover { background: var(--primary-d); }
+.btn-save:hover { background: #116485; }
 .btn-transmit {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; padding: 9px; margin-top: 8px;
@@ -218,9 +230,9 @@ select option { background: var(--surface); color: var(--text); }
 .btn-dl:hover { color: var(--success); border-color: var(--success); }
 /* ── Messages ── */
 .msg { padding: 11px 14px; border-radius: 7px; font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
-.ok  { background: rgba(0,208,132,.12);  color: #4FE3AC; border: 1px solid rgba(0,208,132,.26); }
-.err { background: rgba(207,46,46,.14);  color: #F58585; border: 1px solid rgba(207,46,46,.3);  }
-.warn{ background: rgba(241,144,33,.13); color: #F7B96B; border: 1px solid rgba(241,144,33,.3); }
+.ok  { background: rgba(0,121,77,.08);   color: var(--success); border: 1px solid rgba(0,121,77,.22); }
+.err { background: rgba(179,36,36,.07);  color: var(--error); border: 1px solid rgba(179,36,36,.2);  }
+.warn{ background: rgba(241,144,33,.12); color: var(--warn); border: 1px solid rgba(241,144,33,.35); }
 /* ── Session rows ── */
 .s-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -235,10 +247,10 @@ select option { background: var(--surface); color: var(--text); }
   padding: 3px 8px; border-radius: 20px;
   font-size: 11px; font-weight: 700; white-space: nowrap;
 }
-.b-ok   { background: rgba(0,208,132,.14);   color: #4FE3AC; }
-.b-pend { background: rgba(241,144,33,.15);  color: #F7B96B; }
-.b-disc { background: rgba(92,117,128,.14);  color: #8EA3AB; }
-.b-inc  { background: rgba(241,144,33,.09);  color: #F7B96B; }
+.b-ok   { background: rgba(0,121,77,.09);    color: var(--success); }
+.b-pend { background: rgba(241,144,33,.16);  color: var(--warn); }
+.b-disc { background: rgba(124,139,145,.12); color: #596368; }
+.b-inc  { background: rgba(241,144,33,.09);  color: var(--warn); }
 /* ── Table ── */
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -697,14 +709,14 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
             +esc(c.last_rejected_id_tag)+'</code> \u2014 in rfid_whitelist und Dolibarr eintragen</div>'
           : '';
         return '<div>'+esc(c.wallbox_id||c.id)+' \u00b7 Z\u00e4hler: <strong>'+kwh+'</strong>'
-          +'<span style="background:'+col+';color:var(--primary-i);padding:1px 7px;border-radius:3px;'
+          +'<span style="background:'+col+';color:var(--accent-i);padding:1px 7px;border-radius:3px;'
           +'font-size:11px;font-weight:700;margin-left:6px">'+esc(st)+'</span>'
           +'<span style="float:right;color:var(--dim);font-size:11px">'+esc(c.last_seen||'')+'</span>'
           +rej+'</div>';
       }).join('');
     } else if(hasSensor){
       var chip=state
-        ? '<span style="background:'+stateColor+';color:var(--primary-i);padding:1px 7px;'
+        ? '<span style="background:'+stateColor+';color:var(--accent-i);padding:1px 7px;'
           +'border-radius:3px;font-size:11px;font-weight:700;margin-left:6px">'
           +esc(state)+'</span>'
         : '';
@@ -864,7 +876,7 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
                 f'<div style="color:var(--dim);font-size:11px">'
                 f'Hash {html.escape(t["hash_prefix"])}… · {t["seen_count"]}x gesehen · '
                 f'zuletzt {html.escape(t["last_seen"] or "—")}</div></div>'
-                f'<span style="background:{t["mode_color"]};color:var(--primary-i);padding:2px 8px;'
+                f'<span style="background:{t["mode_color"]};color:var(--accent-i);padding:2px 8px;'
                 f'border-radius:3px;font-size:11px;font-weight:700">'
                 f'{html.escape(t["mode_label"])}</span>'
                 f'<span style="color:var(--dim);font-size:11px">{html.escape(t["mode_hint"])}</span>'
@@ -911,15 +923,15 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
 
 
 # ── Diagrammfarben ─────────────────────────────────────────────────────────
-# Gewählt für die dunkle Petrol-Fläche (#073B4C) und mit dem Paletten-Validator
-# geprüft: Helligkeitsband L 0.48–0.67, Chroma ≥ 0.1, CVD-Trennung
-# ΔE 17.3 (Deutan) / 9.4 (Tritan), Normalsicht ΔE 24.6, Kontrast ≥ 3:1.
+# Gewählt für die HELLE Fläche (#FFFFFF) und mit dem Paletten-Validator
+# geprüft: Helligkeitsband L 0.43–0.77, Chroma ≥ 0.1, CVD-Trennung
+# ΔE 26.1 (Deutan) / 20.8 (Tritan), Normalsicht ok, Kontrast ≥ 3:1.
 # Bewusst NICHT die Statusfarben (warn/error) — die sind für Zustände
 # reserviert und dürfen keine Datenserie einfärben.
-SERIES_BUSINESS = '#199e70'      # Aqua, nah am Markenton
-SERIES_PRIVATE = '#9085e9'       # Violett
-_CHART_GRID = 'rgba(142,163,171,.20)'
-_CHART_AXIS = '#8EA3AB'
+SERIES_BUSINESS = '#00a86a'      # Grün, abgedunkeltes #00d084 der Marke
+SERIES_PRIVATE = '#7a3fc4'       # Violett, abgedunkeltes #9b51e0 der Marke
+_CHART_GRID = 'rgba(1,23,31,.10)'
+_CHART_AXIS = '#7C8B91'
 _STACK_GAP = 2.0          # Flächenspalt zwischen gestapelten Segmenten
 
 
