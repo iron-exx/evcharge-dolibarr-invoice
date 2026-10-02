@@ -40,6 +40,10 @@ module_bsp-1.0.zip
 
 # HA Addon
 /data/
+# Laufzeitdaten des Containers: options.json mit Wallbox-Passwort und
+# Dolibarr-Token, sessions.db. Die Repos sind oeffentlich — NIE committen.
+# ('/data/' oben greift nur im Repo-Wurzelverzeichnis.)
+wallbox-dolibarr/data/
 *.db
 *.db-wal
 *.db-shm

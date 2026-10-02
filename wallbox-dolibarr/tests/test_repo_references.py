@@ -100,3 +100,18 @@ def test_workflow_pushes_to_the_matching_registry():
     assert own, "builder.yaml pusht kein Addon-Image"
     for ref in own:
         assert ref == GHCR_OWNER, f"Workflow pusht nach ghcr.io/{ref}/ statt {GHCR_OWNER}"
+
+
+def test_runtime_data_directory_is_never_committed():
+    """data/ enthält options.json mit Wallbox-Passwort und Dolibarr-Token. Die
+    Repos sind öffentlich — ein versehentliches 'git add -A' auf dem Server
+    würde beides veröffentlichen.
+
+    Der alte Eintrag '/data/' in der Root-.gitignore griff NUR für data/ im
+    Repo-Wurzelverzeichnis, nicht für wallbox-dolibarr/data/, wo
+    docker-compose das Volume anlegt."""
+    for rel in ('wallbox-dolibarr/data/options.json',
+                'wallbox-dolibarr/data/sessions.db',
+                'wallbox-dolibarr/data/irgendwas.json'):
+        r = subprocess.run(['git', 'check-ignore', '-q', '--no-index', rel], cwd=ROOT)
+        assert r.returncode == 0, f"{rel} wird NICHT ignoriert — Zugangsdaten könnten ins öffentliche Repo"
