@@ -430,8 +430,8 @@ Beide Wege bleiben verfügbar: **als HA-Addon** wie bisher, **oder** standalone.
 
 | | HA-Addon | Standalone Docker |
 |---|---|---|
-| Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `data/options.json` selbst anlegen |
-| Betriebsarten | `ha_sensors` **und** `ocpp` | **nur** `ocpp` |
+| Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `.env` (Umgebungsvariablen), optional `data/options.json` |
+| Betriebsarten | alle | `alfen_http`, `ocpp`, `modbus` (kein `ha_sensors`) |
 | Web-UI-Schutz | HA-Ingress mit HA-Login | **kein Schutz** — nur an `127.0.0.1` binden |
 | Zeitzone | setzt der Supervisor | **selbst per `TZ` setzen** |
 | Updates | HA-Addon-Store | `docker compose pull` bzw. neu bauen |
@@ -442,15 +442,28 @@ Beide Wege bleiben verfügbar: **als HA-Addon** wie bisher, **oder** standalone.
 git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 
-mkdir -p data
-cp options.standalone.example.json data/options.json
-$EDITOR data/options.json          # Charge-Point-ID, Karten, Dolibarr-Zugang
+cp .env.example .env
+nano .env                          # Betriebsart, Wallbox-Zugang, Dolibarr-Zugang
 
 docker compose up -d
 docker compose logs -f
 ```
 
-Im Log muss stehen:
+Konfiguration per Umgebungsvariablen (Vorlage mit allen gängigen Werten: `.env.example`):
+
+| Variable | Wirkung |
+|---|---|
+| `EC_<OPTION>=wert` | Option der obersten Ebene, z.B. `EC_SESSION_SOURCE=alfen_http` |
+| `EC_<BEREICH>__<OPTION>=wert` | Option in `api`, `alfen`, `modbus`, z.B. `EC_API__API_TOKEN=…` |
+| Listen/Objekte | als JSON, z.B. `EC_RFID_WHITELIST=["EFCD083E"]` |
+
+Jede Option aus `config.yaml` geht so, ohne Liste im Code. `true`/`false` werden zu
+Wahrheitswerten, Zahlen zu Zahlen; Passwörter, Tokens, Hosts und URLs bleiben immer
+Text. Kaputtes JSON bricht den Start mit Variablennamen im Log ab, statt still falsch
+zu laufen. Im Log steht, welche Optionen aus der Umgebung kamen — nie die Werte.
+Eine `data/options.json` ist optional; steht ein Wert in beiden, gewinnt die Umgebung.
+
+Bei OCPP muss im Log stehen:
 
 ```
 Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
@@ -459,7 +472,7 @@ OCPP-Zentralserver lauscht auf Port 9000
 
 Danach die Wallbox auf `ws://<host-ip>:9000/` stellen (Rest wie im Abschnitt
 [Betriebsart OCPP](#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen):
-Log lesen, gemeldete ID in `ocpp_charge_points` eintragen, neu starten).
+Log lesen, gemeldete ID in `EC_OCPP_CHARGE_POINTS` eintragen, `docker compose up -d`).
 
 ### Drei Dinge, die standalone leicht schiefgehen
 
@@ -470,7 +483,7 @@ Log lesen, gemeldete ID in `ocpp_charge_points` eintragen, neu starten).
    standalone gibt es das nicht. Das Compose-File bindet die UI daher an
    `127.0.0.1:8099`. Wer sie von außen braucht, stellt einen Reverse-Proxy mit eigener
    Authentifizierung davor — **nie** einfach `8099:8099`.
-3. **`./data` nicht gemountet.** Darin liegen `options.json` **und** `sessions.db`.
+3. **`./data` nicht gemountet.** Darin liegt `sessions.db`.
    Ohne Volume sind nach jedem Container-Neustart alle noch nicht an Dolibarr
    übertragenen Ladungen verloren.
 
@@ -485,13 +498,14 @@ Browser, keine Datenbank-Engine.
 
 ```bash
 docker compose logs -f                 # Live-Log
-docker compose restart                 # nach Änderung an data/options.json
+docker compose up -d                   # nach Änderung an .env (restart reicht NICHT)
 docker compose down                    # stoppen (data/ bleibt erhalten)
 sqlite3 data/sessions.db "SELECT id,status,total_kwh FROM sessions ORDER BY id DESC LIMIT 10;"
 ```
 
-Die Konfiguration wird **beim Start** gelesen — nach jeder Änderung an
-`data/options.json` ist ein `docker compose restart` nötig.
+Die Konfiguration wird **beim Start** gelesen. Nach Änderungen an `.env`:
+`docker compose up -d` — ein `docker compose restart` übernimmt neue
+Umgebungsvariablen nicht. Nach Änderungen an `data/options.json` reicht `restart`.
 
 ## Wallbox-Profile (herstellerunabhängige Konfiguration)
 

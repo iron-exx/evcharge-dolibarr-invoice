@@ -49,6 +49,7 @@ from web_server import start_web_server
 from tag_release import TagReleaser
 from tag_learning import LearnBuffer
 from app_settings import resolve_app_settings
+from env_config import apply_env_overrides
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
@@ -180,33 +181,39 @@ def db_path() -> str:
 def load_config():
     """Lädt die Addon-Konfiguration aus <Datenverzeichnis>/options.json (D-04)"""
     path = config_path()
-    try:
-        with open(path, 'r') as f:
-            config = json.load(f)
+    config = {}
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                config = json.load(f)
             _LOGGER.info("Konfiguration geladen von %s", path)
-
-            if isinstance(config.get('ha_token'), str):
-                config['ha_token'] = config['ha_token'].strip()
-
-            # API-Konfiguration validieren (Task 3)
-            api_config = config.get('api', {})
-            if api_config:
-                for key in ('dolibarr_url', 'api_token'):
-                    if isinstance(api_config.get(key), str):
-                        api_config[key] = api_config[key].strip()
-
-                dolibarr_url = api_config.get('dolibarr_url', '')
-                if dolibarr_url and not (dolibarr_url.startswith('http://') or dolibarr_url.startswith('https://')):
-                    _LOGGER.warning("API-Konfiguration: dolibarr_url muss mit http:// oder https:// beginnen")
-
-                api_token = api_config.get('api_token', '')
-                if not api_token or api_token == 'your_dolapikey_here':
-                    _LOGGER.warning("API-Token nicht konfiguriert oder noch Default-Wert")
-
-            return config
-    except Exception as e:
-        _LOGGER.error("Fehler beim Laden der Konfiguration: %s", e)
+        except Exception as e:
+            _LOGGER.error("Fehler beim Laden der Konfiguration %s: %s", path, e)
+    # Umgebung (EC_*) hat Vorrang — ungültiges JSON dort bricht bewusst ab.
+    config = apply_env_overrides(config, os.environ)
+    if not config:
+        _LOGGER.error("Keine Konfiguration: weder %s noch EC_*-Umgebungsvariablen", path)
         return {}
+
+    if isinstance(config.get('ha_token'), str):
+        config['ha_token'] = config['ha_token'].strip()
+
+    # API-Konfiguration validieren (Task 3)
+    api_config = config.get('api', {})
+    if api_config:
+        for key in ('dolibarr_url', 'api_token'):
+            if isinstance(api_config.get(key), str):
+                api_config[key] = api_config[key].strip()
+
+        dolibarr_url = api_config.get('dolibarr_url', '')
+        if dolibarr_url and not (dolibarr_url.startswith('http://') or dolibarr_url.startswith('https://')):
+            _LOGGER.warning("API-Konfiguration: dolibarr_url muss mit http:// oder https:// beginnen")
+
+        api_token = api_config.get('api_token', '')
+        if not api_token or api_token == 'your_dolapikey_here':
+            _LOGGER.warning("API-Token nicht konfiguriert oder noch Default-Wert")
+
+    return config
 
 
 class HomeAssistantWebsocket:

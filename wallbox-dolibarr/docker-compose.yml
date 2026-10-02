@@ -1,11 +1,10 @@
 # ExpenseCharge standalone — ohne Home Assistant, z.B. auf einem Raspberry Pi.
 #
-# Funktioniert NUR mit session_source: "ocpp". Die Betriebsart "ha_sensors"
-# liest Home-Assistant-Sensoren und braucht zwingend HA; standalone verbindet
-# sich die Wallbox direkt per OCPP mit diesem Container.
+# Betriebsarten standalone: alfen_http, ocpp, modbus. "ha_sensors" liest
+# Home-Assistant-Sensoren und braucht zwingend HA.
 #
-#   mkdir -p data && cp options.standalone.example.json data/options.json
-#   $EDITOR data/options.json          # Wallbox-ID, Karten, Dolibarr-Zugang
+#   cp .env.example .env
+#   nano .env                          # Betriebsart, Wallbox, Dolibarr-Zugang
 #   docker compose up -d
 #   docker compose logs -f
 #
@@ -24,6 +23,12 @@ services:
         BUILD_FROM: "${BUILD_FROM:-ghcr.io/home-assistant/base:3.23}"
     restart: unless-stopped
 
+    # Gesamte Konfiguration (EC_*-Variablen), siehe .env.example.
+    # Alternativ dieselben Variablen direkt in Portainer/Proxmox setzen.
+    env_file:
+      - path: .env
+        required: false
+
     environment:
       # OHNE TZ laufen alle Zeitstempel in UTC — dann landet eine Ladung
       # kurz vor Monatsende im falschen Abrechnungsmonat. Immer setzen.
@@ -31,7 +36,7 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
 
     volumes:
-      # Enthält options.json (Konfiguration) und sessions.db (SQLite-Puffer).
+      # Enthält sessions.db (SQLite-Puffer) und optional options.json.
       # Ohne dieses Volume sind nach jedem Neustart alle noch nicht
       # übertragenen Ladungen verloren.
       - ./data:/data

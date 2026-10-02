@@ -67,7 +67,7 @@ ExpenseCharge läuft auf zwei Wegen — beide werden unterstützt:
 |---|---|---|
 | Wofür | HA ist schon im Haus; Sensoren sollen genutzt werden | minimal, z.B. auf einem Raspberry Pi; kein HA vorhanden oder gewollt |
 | Betriebsarten | `ha_sensors` (HA-Sensoren) **und** `ocpp` | **nur** `ocpp` (die Wallbox verbindet sich direkt) |
-| Einrichtung | Addon-Store, Konfiguration in der HA-Oberfläche | `docker compose up -d` mit eigener `data/options.json` |
+| Einrichtung | Addon-Store, Konfiguration in der HA-Oberfläche | `docker compose up -d` mit `.env` |
 | Web-UI | HA-Ingress, durch HA-Login geschützt | nur an `127.0.0.1` gebunden — kein eingebauter Schutz |
 
 Standalone-Anleitung: [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant)
@@ -206,7 +206,8 @@ ExpenseCharge/
 │   ├── icon.png / logo.png                  # Addon-Branding
 │   ├── Dockerfile
 │   ├── docker-compose.yml                   # Standalone-Betrieb ohne HA
-│   ├── options.standalone.example.json      # Beispielkonfiguration dafür
+│   ├── .env.example                         # Konfigurationsvorlage dafür (Umgebungsvariablen)
+│   ├── options.standalone.example.json      # alternativ: Konfiguration als JSON
 │   └── config.yaml
 └── module_wallboxbilling-*.zip              # Build-Artefakte der Dolibarr-Module
 ```

@@ -56,6 +56,7 @@ COPY wallbox_profile.py /usr/local/bin/wallbox_profile.py
 COPY app_settings.py    /usr/local/bin/app_settings.py
 COPY tag_release.py     /usr/local/bin/tag_release.py
 COPY tag_learning.py    /usr/local/bin/tag_learning.py
+COPY env_config.py      /usr/local/bin/env_config.py
 COPY utils/             /usr/local/bin/utils/
 COPY ocpp_server/       /usr/local/bin/ocpp_server/
 COPY modbus_source/     /usr/local/bin/modbus_source/
