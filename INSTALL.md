@@ -122,7 +122,7 @@ Checkliste:
 3. Wallbox auf `ws://<HA-IP>:<Port>/` einstellen, Protokoll „OCPP 1.6 JSON",
    Autorisierung auf *Central System* / *Backend*. Die meisten Wallboxen hängen ihre
    ID selbst an; sonst `ws://<HA-IP>:<Port>/<Charge-Point-ID>`.
-4. Addon-Log lesen — `Unbekannte Wallbox 'XYZ' abgewiesen` nennt die ID der Wallbox.
+4. Addon-Log lesen — `Unbekannte Charge-Point-ID 'XYZ'` nennt die ID der Wallbox.
 5. Diese ID in `ocpp_charge_points` eintragen, optional mit Passwort (mind. 16 Zeichen):
 
    ```yaml
@@ -142,7 +142,8 @@ Details, Herstellertabelle und Sicherheitshinweise:
 
 Wer kein Home Assistant hat oder will, überspringt Schritt 3 komplett und fährt
 ExpenseCharge als einfachen Container (Raspberry Pi mit 64-Bit-OS, Debian-LXC, …).
-Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `feat/ocpp-central-system`:
+Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `feat/ocpp-central-system`
+(öffentlich — kein Token, kein Deploy Key nötig):
 
 ```bash
 git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
@@ -158,6 +159,7 @@ und gibt am Ende Backend-URL `ws://<IP>:9000/`, Charge-Point-ID und Passwort fü
 Wallbox aus. Web-UI im LAN/VPN (`WEB_BIND=0.0.0.0`), Anmeldung (`web_auth`),
 Konfiguration per `.env` und welcher Befehl nach welcher Änderung nötig ist
 (`restart` reicht bei Ports **nicht**, dann `docker compose up -d --force-recreate`):
+Proxmox-CT-Firewall (8099 nur Admin-Netz, 9000 nur Wallbox-Netz):
 siehe [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant).
 
 ## 4 — Funktionsprüfung (End-to-End)

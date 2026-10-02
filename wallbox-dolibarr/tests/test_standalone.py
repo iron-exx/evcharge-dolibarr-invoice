@@ -119,12 +119,15 @@ def test_setup_script_writes_valid_options(tmp_path):
         pytest.skip('jq nicht installiert')
     for f in ('setup-standalone.sh', 'options.standalone.example.json', '.env.example'):
         shutil.copy(os.path.join(here, f), tmp_path)
-    answers = 'ACE1\ngarage\nhttps://erp.firma.de\ntok"1\nEFCD083E, AABB\n1\n'
+    answers = 'ACE1\ngarage\nhttps://erp.firma.de\ntok"1\nEFCD083E, AABB\n0.0.0.0\n\nadmin\n\n'
     out = subprocess.run(['bash', str(tmp_path / 'setup-standalone.sh')], input=answers,
                          capture_output=True, text=True, check=True).stdout
     cfg = json.load(open(tmp_path / 'data' / 'options.json'))
     pw = cfg['ocpp_charge_points'][0]['password']
     assert len(pw) == 24 and pw in out and 'ws://' in out
+    assert cfg['web_auth']['username'] == 'admin' and len(cfg['web_auth']['password']) == 16
+    assert 'WEB_BIND=0.0.0.0' in open(tmp_path / '.env').read()
+    assert ':8099/' in out
     assert cfg['api']['api_token'] == 'tok"1'
     assert cfg['rfid_whitelist'] == ['EFCD083E', 'AABB']
     from placeholders import find_placeholders

@@ -38,7 +38,7 @@ fi
 echo
 echo "── Wallbox ──"
 echo "Die Charge-Point-ID steht in der Wallbox-Konfiguration (Alfen: Seriennummer,"
-echo "z.B. ACE0123456). Falsch? Das Log meldet später 'Unbekannte Wallbox <ID> abgewiesen'."
+echo "z.B. ACE0123456). Falsch? Das Log meldet später 'Unbekannte Charge-Point-ID <ID>'."
 ask cp_id "Charge-Point-ID"
 [ -n "$cp_id" ] || die "Charge-Point-ID ist Pflicht"
 ask wallbox_id "Name der Wallbox in Dolibarr (wallbox_id)" "garage"
@@ -62,14 +62,20 @@ ask cards "Karten" ""
 
 echo
 echo "── Web-UI ──"
-echo "  1) nur lokal / SSH-Tunnel (127.0.0.1)"
-echo "  2) im LAN/VPN erreichbar (0.0.0.0, mit Anmeldung)"
-ask web_choice "Auswahl" "1"
-web_bind=127.0.0.1; web_user=""; web_pw=""
-if [ "$web_choice" = 2 ]; then
-    web_bind=0.0.0.0
-    ask web_user "Benutzername für die Web-UI" "admin"
-    web_pw=$(openssl rand -hex 8 2>/dev/null || head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
+echo "WEB_BIND: 127.0.0.1 = nur auf diesem Host / per SSH-Tunnel,"
+echo "          0.0.0.0   = im ganzen LAN/VPN (dann Anmeldung einrichten!)"
+while :; do
+    ask web_bind "WEB_BIND" "127.0.0.1"
+    [[ "$web_bind" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] && break
+    echo "  Bitte eine IPv4-Adresse angeben, z.B. 127.0.0.1 oder 0.0.0.0."
+done
+[ "$web_bind" = 127.0.0.1 ] && auth_default=n || auth_default=j
+ask want_auth "Anmeldung für die Web-UI (web_auth) einrichten? j/n" "$auth_default"
+web_user=""; web_pw=""
+if [[ "$want_auth" =~ ^[jJyY] ]]; then
+    ask web_user "Benutzername" "admin"
+    read -r -s -p "Passwort (leer = zufällig erzeugen, Eingabe unsichtbar): " web_pw; echo
+    [ -n "$web_pw" ] || web_pw=$(openssl rand -hex 8 2>/dev/null || head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
 fi
 
 tmp=$(mktemp)
@@ -98,24 +104,31 @@ fi
 chmod 600 .env
 
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+case "$web_bind" in
+    127.0.0.1) gui="http://127.0.0.1:8099/  (nur auf diesem Host bzw. per SSH-Tunnel)" ;;
+    0.0.0.0)   gui="http://${ip:-<host-ip>}:8099/" ;;
+    *)         gui="http://$web_bind:8099/" ;;
+esac
 cat <<MSG
 
 Fertig: $OPTIONS und .env geschrieben (nur für den Eigentümer lesbar).
+
+Web-UI:            $gui
+MSG
+if [ -n "$web_pw" ]; then
+    cat <<MSG
+  Benutzer:        $web_user
+  Passwort:        $web_pw
+MSG
+elif [ "$web_bind" != 127.0.0.1 ]; then
+    echo "  WARNUNG: im Netz erreichbar OHNE Anmeldung."
+fi
+cat <<MSG
 
 In der Wallbox eintragen (OCPP 1.6J):
   Backend-URL:      ws://${ip:-<host-ip>}:9000/
   Charge-Point-ID:  $cp_id
   Passwort:         $ocpp_pw
-MSG
-if [ -n "$web_pw" ]; then
-    cat <<MSG
-
-Web-UI:  http://${ip:-<host-ip>}:8099/
-  Benutzer:  $web_user
-  Passwort:  $web_pw
-MSG
-fi
-cat <<MSG
 
 Jetzt starten:
   docker compose up -d --build --force-recreate

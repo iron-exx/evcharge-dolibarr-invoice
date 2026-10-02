@@ -86,7 +86,7 @@ Ein Moduswechsel sollte nur ohne laufenden Ladevorgang erfolgen.
    Autorisierung auf *Central System* / *Backend*. Die meisten Wallboxen hängen ihre eigene
    ID selbst an die URL an; sonst `ws://<HA-IP>:<Port>/<Charge-Point-ID>`.
 4. **Addon-Log lesen.** Beim ersten Verbindungsversuch steht dort:
-   `Unbekannte Wallbox 'ACE0123456' abgewiesen — in ocpp_charge_points eintragen`.
+   `Unbekannte Charge-Point-ID 'ACE0123456' – in ocpp_charge_points eintragen`.
    Das ist die ID, die die Wallbox sendet.
 5. Diese ID in `ocpp_charge_points` eintragen, optional mit Passwort (Basic Auth).
 6. **Karten in GROSSBUCHSTABEN** in `rfid_whitelist` und in Dolibarr eintragen. Die ID
@@ -431,7 +431,11 @@ oder in einem Debian-LXC. Beide Wege bleiben verfügbar: **als HA-Addon** wie bi
 | `iron-exx/evcharge-dolibarr-invoice` | Spiegel desselben Branches, gleicher Stand |
 
 Der Standalone-Betrieb liegt derzeit im Branch **`feat/ocpp-central-system`**
-(noch nicht in `main`) — darum `-b` beim Klonen nicht vergessen.
+(noch nicht in `main`) — darum `-b` beim Klonen nicht vergessen. Beim Spiegel ist
+`main` ein älteres, anderes Projekt.
+
+Beide Repositories sind **öffentlich**: `git clone` und `git pull` über HTTPS brauchen
+weder Token noch Deploy Key.
 
 ### Was sich gegenüber dem Addon-Betrieb unterscheidet
 
@@ -460,17 +464,27 @@ docker compose logs -f
   (eine vorhandene Datei wird vorher gesichert),
 - setzt ein **zufälliges OCPP-Passwort** (`openssl rand -hex 12`),
 - fragt Charge-Point-ID, Dolibarr-URL, API-Token (unsichtbar) und RFID-Karten ab,
-- fragt, ob die Web-UI nur lokal oder im LAN/VPN erreichbar sein soll — bei LAN setzt es
-  `WEB_BIND=0.0.0.0` und erzeugt eine Anmeldung (`web_auth`),
+- fragt `WEB_BIND` ab (Vorgabe `127.0.0.1`, fürs LAN/VPN `0.0.0.0`) und schreibt die `.env`,
+- richtet optional eine Anmeldung (`web_auth`) ein — bei `0.0.0.0` ist „ja“ vorgeschlagen,
+  ein leeres Passwort wird zufällig erzeugt,
 - validiert das JSON und bricht ab, falls noch ein Vorlagenwert drinsteht,
-- gibt am Ende **Backend-URL (`ws://<IP>:9000/`), Charge-Point-ID und Passwort** für die
-  Wallbox aus (und ggf. die Web-UI-Zugangsdaten).
+- gibt am Ende **GUI-URL, OCPP-Backend-URL (`ws://<IP>:9000/`), Charge-Point-ID und
+  Passwort** für die Wallbox aus (und ggf. die Web-UI-Zugangsdaten).
+
+Ein Skript statt Copy-Paste, weil mehrzeiliges Einfügen in der Proxmox-Konsole
+unzuverlässig ist (Bracketed-Paste-Artefakte zerstören JSON und Heredocs).
 
 Im Log muss dann stehen:
 
 ```
 Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
 OCPP-Zentralserver lauscht auf Port 9000 (ws://<host-ip>:9000/<charge-point-id>)
+```
+
+Verbindet sich eine Wallbox mit einer ID, die nicht in `ocpp_charge_points` steht:
+
+```
+WARNING - Unbekannte Charge-Point-ID 'ACE0099999' – in ocpp_charge_points eintragen (Verbindung abgewiesen)
 ```
 
 Stehen noch Vorlagenwerte in der Konfiguration, meldet der Start das klar, statt
@@ -505,6 +519,24 @@ deutliche WARNING im Log. Im HA-Addon wird `web_auth` ignoriert — dort schütz
 
 Basic Auth überträgt das Passwort nur Base64-kodiert: über ein VPN oder im eigenen LAN in
 Ordnung, ins Internet nur hinter einem Reverse-Proxy mit HTTPS.
+
+Lokale Anpassungen gehören in `.env` (und notfalls in eine
+`docker-compose.override.yml`) — beide sind per `.gitignore` ausgeschlossen und
+blockieren nie ein `git pull`. Ein Override nur für die Ports ist mit `WEB_BIND`
+überflüssig.
+
+### Proxmox: CT-Firewall
+
+Läuft der Container in einem LXC unter Proxmox, die Ports in der CT-Firewall
+(*Container → Firewall*) gezielt freigeben, nicht pauschal:
+
+| Port | freigeben für | Zweck |
+|---|---|---|
+| `8099/tcp` | **nur das Admin-Netz** (z.B. das VPN-Netz der Verwaltung) | Web-UI |
+| `9000/tcp` | **nur das Wallbox-Netz** | OCPP — hier verbindet sich die Wallbox |
+
+Beide Ports dürfen nie aus dem Internet erreichbar sein. Die Firewall ersetzt
+`web_auth` nicht, sie ergänzt es.
 
 ### Konfiguration ohne JSON: `.env`
 

@@ -115,6 +115,7 @@ def test_env_file_is_gitignored_but_example_is_not():
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ignored = lambda p: subprocess.run(['git', 'check-ignore', '-q', p], cwd=here).returncode == 0
     assert ignored('.env')
+    assert ignored('docker-compose.override.yml'), "lokale Overrides dürfen git pull nie blockieren"
     assert not ignored('.env.example')
 
 

@@ -82,7 +82,7 @@ class OcppServer:
         cp_id = charge_point_id_from_path(request.path)
         cp_cfg = self._settings.find(cp_id)
         if cp_cfg is None:
-            _LOGGER.warning("Unbekannte Wallbox %s abgewiesen — in ocpp_charge_points eintragen",
+            _LOGGER.warning("Unbekannte Charge-Point-ID %s – in ocpp_charge_points eintragen (Verbindung abgewiesen)",
                             safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.NOT_FOUND, "Unknown charge point\n")
         if is_placeholder_password(cp_cfg.password):

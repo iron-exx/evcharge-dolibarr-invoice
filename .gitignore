@@ -44,6 +44,8 @@ module_bsp-1.0.zip
 # Dolibarr-Token, sessions.db. Die Repos sind oeffentlich — NIE committen.
 # ('/data/' oben greift nur im Repo-Wurzelverzeichnis.)
 wallbox-dolibarr/data/
+# Lokale Anpassungen am Server — sollen nie git pull blockieren
+docker-compose.override.yml
 *.db
 *.db-wal
 *.db-shm
