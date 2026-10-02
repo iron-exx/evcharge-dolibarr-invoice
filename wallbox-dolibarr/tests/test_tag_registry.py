@@ -175,3 +175,15 @@ def test_charge_without_a_registry_entry_is_still_transmitted(sm):
     _charge(sm, BUSINESS)
     api = _Api()
     assert sm.transmit_completed_sessions(api)["transmitted"] == 1
+
+
+def test_rejection_message_does_not_claim_the_whitelist_is_missing(sm, caplog):
+    """Die OCPP-Autorisierung fragt die Tag-Verwaltung mit leerer Whitelist ab.
+    Die Meldung darf dann nicht behaupten, es sei keine Whitelist konfiguriert —
+    das schickt bei der Fehlersuche in die falsche Richtung."""
+    import logging
+    caplog.set_level(logging.WARNING)
+    assert sm.is_rfid_authorized("DEADBEEF", []) is False
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Keine RFID-Whitelist konfiguriert" not in text, text
+    assert "nicht autorisiert" in text.lower() or "nicht freigeschaltet" in text.lower()

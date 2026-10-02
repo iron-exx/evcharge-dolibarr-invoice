@@ -157,13 +157,33 @@ api_client = None
 api_state = None  # Live-Zustand für Web-Server (current_energy, wallbox_state)
 
 
+# Datenverzeichnis. /data ist richtig im Addon- und Docker-Betrieb (dort als
+# Volume gemountet). Ohne Docker — systemd-Dienst auf einem Pi, lokales
+# Ausprobieren — gibt es kein /data und es lässt sich auch nicht anlegen; dann
+# zeigt EXPENSECHARGE_DATA auf ein beschreibbares Verzeichnis.
+DEFAULT_DATA_DIR = '/data'
+
+
+def data_dir() -> str:
+    """Verzeichnis für options.json und sessions.db."""
+    return (os.getenv('EXPENSECHARGE_DATA') or DEFAULT_DATA_DIR).rstrip('/') or '/'
+
+
+def config_path() -> str:
+    return os.path.join(data_dir(), 'options.json')
+
+
+def db_path() -> str:
+    return os.path.join(data_dir(), 'sessions.db')
+
+
 def load_config():
-    """Lädt Addon-Konfiguration aus /data/options.json (D-04)"""
-    config_path = '/data/options.json'
+    """Lädt die Addon-Konfiguration aus <Datenverzeichnis>/options.json (D-04)"""
+    path = config_path()
     try:
-        with open(config_path, 'r') as f:
+        with open(path, 'r') as f:
             config = json.load(f)
-            _LOGGER.info("Konfiguration geladen von %s", config_path)
+            _LOGGER.info("Konfiguration geladen von %s", path)
 
             if isinstance(config.get('ha_token'), str):
                 config['ha_token'] = config['ha_token'].strip()
@@ -966,7 +986,7 @@ async def main():
 
     # Session Manager initialisieren (PER-01)
     session_manager = SessionManager(
-        db_path="/data/sessions.db",
+        db_path=db_path(),
         debounce_seconds=app_settings.debounce_seconds,
         max_plausible_kw=app_settings.max_plausible_kw,
         max_discard_hours=app_settings.max_discard_hours,

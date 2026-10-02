@@ -258,7 +258,14 @@ class SessionManager:
             return False
 
         if not whitelist:
-            self._logger.warning("Keine RFID-Whitelist konfiguriert und kein Tag-Eintrag")
+            # Ohne übergebene Whitelist IST die Tag-Verwaltung die einzige
+            # Quelle — und die hat oben schon nichts gefunden. Nicht behaupten,
+            # es sei keine Whitelist konfiguriert: der Aufrufer (OCPP) fragt
+            # absichtlich mit leerer Liste, und die Meldung würde bei der
+            # Fehlersuche in die falsche Richtung schicken.
+            self._logger.warning("RFID nicht autorisiert: %s... — Karte ist nicht "
+                                 "freigeschaltet (weder in der Tag-Verwaltung noch "
+                                 "in rfid_whitelist)", rfid_hash[:16])
             return False
 
         # Whitelist enthält Hex-Strings, wir vergleichen Hashes
