@@ -34,6 +34,8 @@ services:
       # kurz vor Monatsende im falschen Abrechnungsmonat. Immer setzen.
       TZ: "${TZ:-Europe/Berlin}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      # Nur zur Information für die Warnung "UI ohne Anmeldung im Netz".
+      WEB_BIND: "${WEB_BIND:-127.0.0.1}"
 
     volumes:
       # Enthält sessions.db (SQLite-Puffer) und optional options.json.
@@ -45,8 +47,9 @@ services:
       # OCPP-Zentralserver — hier verbindet sich die Wallbox.
       # Muss im LAN erreichbar sein, darf NIE ins Internet.
       - "9000:9000"
-      # Web-UI. Im HA-Betrieb schützt der Ingress sie mit dem HA-Login;
-      # standalone gibt es diesen Schutz NICHT. Deshalb nur lokal gebunden.
-      # Von außen erreichbar machen? Nur hinter einem Reverse-Proxy mit
-      # eigener Authentifizierung.
-      - "127.0.0.1:8099:8099"
+      # Web-UI. Standard nur lokal (127.0.0.1). Fürs LAN/VPN in der .env
+      # WEB_BIND=0.0.0.0 setzen — dann UNBEDINGT web_auth konfigurieren,
+      # standalone gibt es keinen HA-Login davor. Diese Datei bleibt
+      # unverändert, damit git pull nie blockiert.
+      # Nach Änderung: docker compose up -d --force-recreate
+      - "${WEB_BIND:-127.0.0.1}:8099:8099"

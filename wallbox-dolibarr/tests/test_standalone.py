@@ -5,6 +5,7 @@ HA-Websocket. Nur die Betriebsart `ocpp` funktioniert dort — und genau das mus
 die mitgelieferte Beispielkonfiguration hergeben, sonst scheitert jeder, der
 der Doku folgt.
 """
+import pytest
 import json
 import os
 import sys
@@ -42,7 +43,8 @@ def test_example_config_only_uses_known_options():
     """Jeder Schlüssel muss es auch in config.yaml geben, sonst driftet das
     Beispiel von der echten Konfiguration weg."""
     known = set(yaml.safe_load(open(os.path.join(HERE, 'config.yaml'), encoding='utf-8'))['options'])
-    unknown = set(_example()) - known
+    # web_auth gibt es nur standalone; im Addon schützt der Ingress.
+    unknown = set(_example()) - known - {'web_auth'}
     assert not unknown, f"unbekannte Schlüssel im Beispiel: {sorted(unknown)}"
 
 
@@ -64,8 +66,9 @@ def test_compose_does_not_publish_the_web_ui_publicly():
     svc = compose['services']['expensecharge']
     ui = [str(p) for p in svc['ports'] if '8099' in str(p)]
     assert ui, "Web-UI-Port sollte vorhanden, aber gebunden sein"
-    assert all(p.startswith('127.0.0.1:') for p in ui), \
-        f"Web-UI muss an 127.0.0.1 gebunden sein (ist: {ui})"
+    # Per WEB_BIND aus der .env überschreibbar, Vorgabe bleibt lokal.
+    assert all(p.startswith(('127.0.0.1:', '${WEB_BIND:-127.0.0.1}:')) for p in ui), \
+        f"Web-UI muss standardmäßig an 127.0.0.1 gebunden sein (ist: {ui})"
 
 
 async def test_missing_token_names_the_standalone_option(tmp_path, monkeypatch, caplog):
@@ -94,3 +97,35 @@ async def test_missing_token_names_the_standalone_option(tmp_path, monkeypatch, 
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert "session_source" in text and "ocpp" in text, \
         f"Meldung nennt den Standalone-Weg nicht:\n{text}"
+
+
+def test_web_bind_is_configurable_without_editing_compose():
+    """Lokale Änderungen an docker-compose.yml blockieren jedes git pull."""
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    compose = open(os.path.join(here, 'docker-compose.yml')).read()
+    assert '"${WEB_BIND:-127.0.0.1}:8099:8099"' in compose
+    example = open(os.path.join(here, '.env.example')).read()
+    assert 'WEB_BIND=127.0.0.1' in example and 'TZ=Europe/Berlin' in example
+    for line in example.splitlines():
+        assert not line.startswith('EC_'), "aktive EC_-Werte würden options.json überschreiben"
+
+
+def test_setup_script_writes_valid_options(tmp_path):
+    import json
+    import shutil
+    import subprocess
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if not shutil.which('jq'):
+        pytest.skip('jq nicht installiert')
+    for f in ('setup-standalone.sh', 'options.standalone.example.json', '.env.example'):
+        shutil.copy(os.path.join(here, f), tmp_path)
+    answers = 'ACE1\ngarage\nhttps://erp.firma.de\ntok"1\nEFCD083E, AABB\n1\n'
+    out = subprocess.run(['bash', str(tmp_path / 'setup-standalone.sh')], input=answers,
+                         capture_output=True, text=True, check=True).stdout
+    cfg = json.load(open(tmp_path / 'data' / 'options.json'))
+    pw = cfg['ocpp_charge_points'][0]['password']
+    assert len(pw) == 24 and pw in out and 'ws://' in out
+    assert cfg['api']['api_token'] == 'tok"1'
+    assert cfg['rfid_whitelist'] == ['EFCD083E', 'AABB']
+    from placeholders import find_placeholders
+    assert find_placeholders(cfg) == []

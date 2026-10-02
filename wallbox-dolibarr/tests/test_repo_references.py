@@ -20,8 +20,9 @@ REPO = 'ExpenseCharge'
 # GHCR-Namensräume sind immer klein geschrieben.
 GHCR_OWNER = OWNER.lower()
 
-# Namen, die es nicht gibt bzw. die nicht mehr gelten.
-DEAD = ('ExpenseChrage', 'iron-exx')
+# Namen, die es nicht gibt bzw. die nicht mehr gelten. Der Spiegel
+# iron-exx/evcharge-dolibarr-invoice existiert und darf genannt werden.
+DEAD = ('ExpenseChrage', 'iron-exx/ExpenseCharge', 'ghcr.io/iron-exx')
 
 
 # Dateien, die die toten Namen absichtlich nennen und daher nicht geprüft werden:

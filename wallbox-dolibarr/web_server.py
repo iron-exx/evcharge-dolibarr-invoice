@@ -9,9 +9,12 @@ Seiten:
   GET  /history       Monatliche Verlaufsansicht
   GET  /export        CSV-Export für einen Monat
 """
+import base64
 import csv
+import hmac
 import io
 import logging
+import os
 import calendar
 import html
 import sqlite3
@@ -1419,6 +1422,28 @@ def _build_history_page(session_manager, year, month, base_href=''):
 # App-Factory
 # ---------------------------------------------------------------------------
 
+def _auth_middlewares(config) -> list:
+    """HTTP Basic Auth für alle Routen außer /health, wenn web_auth gesetzt ist.
+
+    Nur standalone: im HA-Addon schützt der Ingress mit dem HA-Login.
+    """
+    auth = config.get('web_auth') or {}
+    user, password = str(auth.get('username') or ''), str(auth.get('password') or '')
+    if not (user and password) or os.getenv('SUPERVISOR_TOKEN'):
+        return []
+    expected = ('Basic ' + base64.b64encode(f'{user}:{password}'.encode()).decode()).encode()
+
+    @web.middleware
+    async def basic_auth(request, handler):
+        if request.path == '/health' or hmac.compare_digest(
+                request.headers.get('Authorization', '').encode(), expected):
+            return await handler(request)
+        return web.Response(status=401, text='Anmeldung erforderlich\n',
+                            headers={'WWW-Authenticate': 'Basic realm="ExpenseCharge", charset="UTF-8"'})
+
+    return [basic_auth]
+
+
 def create_app(session_manager, config, api_state):
     """
     api_state: dict mit key 'client' → WallboxApiClient oder None.
@@ -1690,7 +1715,11 @@ def create_app(session_manager, config, api_state):
             return web.json_response({'ok': True})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
 
-    app = web.Application()
+    async def handle_health(request):
+        return web.json_response({'status': 'ok'})
+
+    app = web.Application(middlewares=_auth_middlewares(config))
+    app.router.add_get('/health',    handle_health)
     app.router.add_get('/',          handle_get)
     app.router.add_post('/',         handle_post)
     app.router.add_post('/transmit', handle_transmit)

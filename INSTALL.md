@@ -141,49 +141,24 @@ Details, Herstellertabelle und Sicherheitshinweise:
 ## 3.5 — Variante Standalone: Docker ohne Home Assistant
 
 Wer kein Home Assistant hat oder will, überspringt Schritt 3 komplett und fährt
-ExpenseCharge als einfachen Container, z.B. auf einem Raspberry Pi (64-Bit-OS).
-
-Standalone gehen die Betriebsarten `alfen_http`, `ocpp` und `modbus` — nur
-`ha_sensors` braucht Home Assistant.
+ExpenseCharge als einfachen Container (Raspberry Pi mit 64-Bit-OS, Debian-LXC, …).
+Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `feat/ocpp-central-system`:
 
 ```bash
-git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 
-cp .env.example .env
-nano .env                       # Betriebsart, Wallbox-Zugang, Dolibarr-URL + Token
-
-docker compose up -d
+./setup-standalone.sh                        # fragt alles ab, gibt die Wallbox-Daten aus
+docker compose up -d --build --force-recreate
 docker compose logs -f
 ```
 
-Die gesamte Konfiguration steht in `.env` (Format und alle Variablen: `.env.example`).
-Jede Option aus `config.yaml` ist als `EC_<OPTION>` bzw. `EC_<BEREICH>__<OPTION>`
-setzbar, Listen als JSON. Statt `.env` gehen dieselben Variablen auch direkt in
-Portainer/Proxmox. Eine `data/options.json` ist optional; die `.env` hat Vorrang.
-Nach Änderungen: `docker compose up -d` (ein `restart` liest die `.env` **nicht** neu).
-
-Erwartete Logzeilen bei OCPP:
-
-```
-Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
-OCPP-Zentralserver lauscht auf Port 9000
-```
-
-Dann weiter wie in Abschnitt 3.4 ab Schritt 3: Wallbox auf `ws://<host-ip>:9000/`
-stellen, Log lesen, die gemeldete Charge-Point-ID in `EC_OCPP_CHARGE_POINTS` eintragen,
-`docker compose up -d`.
-
-**Drei Punkte, die hier anders sind als im Addon:**
-
-- `TZ` muss gesetzt sein (macht das Compose-File, Default `Europe/Berlin`). Fehlt sie,
-  laufen die Zeitstempel in UTC und eine Ladung am Monatsletzten landet im falschen
-  Abrechnungsmonat.
-- Die Web-UI hat **keinen** Login — im Addon schützt sie der HA-Ingress. Das
-  Compose-File bindet sie deshalb an `127.0.0.1:8099`. Von außen nur über einen
-  Reverse-Proxy mit eigener Authentifizierung.
-- `./data` muss als Volume bestehen bleiben: darin liegt die
-  SQLite-Datenbank mit noch nicht übertragenen Ladungen.
+Das Skript schreibt `data/options.json` (mit zufälligem OCPP-Passwort) und die `.env`
+und gibt am Ende Backend-URL `ws://<IP>:9000/`, Charge-Point-ID und Passwort für die
+Wallbox aus. Web-UI im LAN/VPN (`WEB_BIND=0.0.0.0`), Anmeldung (`web_auth`),
+Konfiguration per `.env` und welcher Befehl nach welcher Änderung nötig ist
+(`restart` reicht bei Ports **nicht**, dann `docker compose up -d --force-recreate`):
+siehe [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant).
 
 ## 4 — Funktionsprüfung (End-to-End)
 

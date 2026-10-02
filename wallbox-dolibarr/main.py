@@ -50,6 +50,7 @@ from tag_release import TagReleaser
 from tag_learning import LearnBuffer
 from app_settings import resolve_app_settings
 from env_config import apply_env_overrides
+from placeholders import find_placeholders
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
 from ocpp_server.settings import resolve_ocpp_settings
@@ -176,6 +177,19 @@ def config_path() -> str:
 
 def db_path() -> str:
     return os.path.join(data_dir(), 'sessions.db')
+
+
+def warn_if_web_exposed(config: dict) -> None:
+    """Standalone: Web-UI über WEB_BIND im Netz, aber ohne Anmeldung."""
+    if os.getenv('SUPERVISOR_TOKEN'):
+        return   # HA-Addon: Ingress mit HA-Login davor
+    bind = os.getenv('WEB_BIND', '127.0.0.1').strip()
+    auth = config.get('web_auth') or {}
+    if bind not in ('127.0.0.1', 'localhost', '::1') and not (auth.get('username') and auth.get('password')):
+        _LOGGER.warning("Web-UI ist über WEB_BIND=%s im Netz erreichbar, aber OHNE Anmeldung — "
+                        "jeder im Netz kann Karten freischalten und Ladungen übertragen. "
+                        "web_auth (username/password) in data/options.json bzw. "
+                        "EC_WEB_AUTH__USERNAME/EC_WEB_AUTH__PASSWORD setzen.", bind)
 
 
 def load_config():
@@ -1023,11 +1037,17 @@ async def main():
     # Wallbox-Profil auflösen (Auth-/Zustand-Modus, Sensoren, Schwellenwerte).
     # 'alfen_eve' (Default) liefert exakt das bewährte, bisherige Verhalten.
     profile = wallbox_profile.resolve_profile(current_config)
-    _LOGGER.info(
-        "Wallbox-Profil: %s (auth_mode=%s, state_mode=%s, rfid=%s, energy=%s, state=%s)",
-        current_config.get('wallbox_profile', 'alfen_eve'), profile.auth_mode, profile.state_mode,
-        profile.sensor_rfid, profile.sensor_energy, profile.sensor_state,
-    )
+    # Nur bei ha_sensors relevant — sonst nennt das Log Sensoren, die gar nicht gelesen werden.
+    if current_config.get('session_source', 'ha_sensors') == 'ha_sensors':
+        _LOGGER.info(
+            "Wallbox-Profil: %s (auth_mode=%s, state_mode=%s, rfid=%s, energy=%s, state=%s)",
+            current_config.get('wallbox_profile', 'alfen_eve'), profile.auth_mode, profile.state_mode,
+            profile.sensor_rfid, profile.sensor_energy, profile.sensor_state,
+        )
+    warn_if_web_exposed(current_config)
+    placeholders = find_placeholders(current_config)
+    for field in placeholders:
+        _LOGGER.error("Platzhalter in %s nicht ersetzt: %s", config_path(), field)
 
     # API Client initialisieren — flat config (dolibarr_url auf Top-Level)
     api_client = None
@@ -1046,7 +1066,9 @@ async def main():
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")
-    if dolibarr_url and dolibarr_url != "https://dolibarr.example.com" and api_token:
+    if any(p.startswith('api.') for p in placeholders):
+        _LOGGER.error("Dolibarr-Übertragung deaktiviert, bis die Platzhalter ersetzt sind")
+    elif dolibarr_url and api_token:
         try:
             api_client = WallboxApiClient(
                 base_url=dolibarr_url,

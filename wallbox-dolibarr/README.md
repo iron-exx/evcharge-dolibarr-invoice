@@ -418,94 +418,145 @@ Zustandssensor; zugeordnet wird sie dem zuletzt gesehenen Tag.
 
 ## Standalone in Docker — ohne Home Assistant
 
-ExpenseCharge läuft auch als einfacher Docker-Container, etwa auf einem Raspberry Pi.
-Beide Wege bleiben verfügbar: **als HA-Addon** wie bisher, **oder** standalone.
+ExpenseCharge läuft auch als einfacher Docker-Container, etwa auf einem Raspberry Pi
+oder in einem Debian-LXC. Beide Wege bleiben verfügbar: **als HA-Addon** wie bisher,
+**oder** standalone. Standalone gehen die Betriebsarten `ocpp`, `alfen_http` und
+`modbus` — nur `ha_sensors` braucht Home Assistant.
 
-> **Nur mit `session_source: ocpp`.** Ohne Home Assistant gibt es keine HA-Sensoren,
-> also kann die Betriebsart `ha_sensors` dort nicht funktionieren. Im OCPP-Betrieb
-> braucht ExpenseCharge Home Assistant ohnehin nicht — die Wallbox verbindet sich
-> direkt mit dem Container.
+### Welches Repository?
+
+| Repository | Rolle |
+|---|---|
+| **`systemwerk-GmbH-Co-KG/ExpenseCharge`** | **Quelle für Deployments** — hier wird entwickelt |
+| `iron-exx/evcharge-dolibarr-invoice` | Spiegel desselben Branches, gleicher Stand |
+
+Der Standalone-Betrieb liegt derzeit im Branch **`feat/ocpp-central-system`**
+(noch nicht in `main`) — darum `-b` beim Klonen nicht vergessen.
 
 ### Was sich gegenüber dem Addon-Betrieb unterscheidet
 
 | | HA-Addon | Standalone Docker |
 |---|---|---|
-| Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `.env` (Umgebungsvariablen), optional `data/options.json` |
-| Betriebsarten | alle | `alfen_http`, `ocpp`, `modbus` (kein `ha_sensors`) |
-| Web-UI-Schutz | HA-Ingress mit HA-Login | **kein Schutz** — nur an `127.0.0.1` binden |
-| Zeitzone | setzt der Supervisor | **selbst per `TZ` setzen** |
-| Updates | HA-Addon-Store | `docker compose pull` bzw. neu bauen |
+| Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `setup-standalone.sh` schreibt `data/options.json`; alternativ `.env` |
+| Betriebsarten | alle | `ocpp`, `alfen_http`, `modbus` (kein `ha_sensors`) |
+| Web-UI-Schutz | HA-Ingress mit HA-Login | lokal gebunden; im LAN **nur mit `web_auth`** |
+| Zeitzone | setzt der Supervisor | `TZ` in der `.env` (Vorgabe `Europe/Berlin`) |
+| Updates | HA-Addon-Store | `git pull` + neu bauen |
 
 ### Einrichtung
 
 ```bash
-git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 
-cp .env.example .env
-nano .env                          # Betriebsart, Wallbox-Zugang, Dolibarr-Zugang
-
-docker compose up -d
+./setup-standalone.sh                        # fragt alles ab, schreibt data/options.json + .env
+docker compose up -d --build --force-recreate
 docker compose logs -f
 ```
 
-Konfiguration per Umgebungsvariablen (Vorlage mit allen gängigen Werten: `.env.example`):
+`setup-standalone.sh` (braucht `jq`, installiert es als root selbst):
+
+- legt `data/` an und erzeugt `data/options.json` aus `options.standalone.example.json`
+  (eine vorhandene Datei wird vorher gesichert),
+- setzt ein **zufälliges OCPP-Passwort** (`openssl rand -hex 12`),
+- fragt Charge-Point-ID, Dolibarr-URL, API-Token (unsichtbar) und RFID-Karten ab,
+- fragt, ob die Web-UI nur lokal oder im LAN/VPN erreichbar sein soll — bei LAN setzt es
+  `WEB_BIND=0.0.0.0` und erzeugt eine Anmeldung (`web_auth`),
+- validiert das JSON und bricht ab, falls noch ein Vorlagenwert drinsteht,
+- gibt am Ende **Backend-URL (`ws://<IP>:9000/`), Charge-Point-ID und Passwort** für die
+  Wallbox aus (und ggf. die Web-UI-Zugangsdaten).
+
+Im Log muss dann stehen:
+
+```
+Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
+OCPP-Zentralserver lauscht auf Port 9000 (ws://<host-ip>:9000/<charge-point-id>)
+```
+
+Stehen noch Vorlagenwerte in der Konfiguration, meldet der Start das klar, statt
+Verbindungsfehler zu produzieren — die Dolibarr-Übertragung bleibt dann aus, und eine
+Wallbox mit Vorlagen-Passwort wird abgewiesen:
+
+```
+ERROR - Platzhalter in /data/options.json nicht ersetzt: api.dolibarr_url
+```
+
+### Web-UI im LAN/VPN: `WEB_BIND` und `web_auth`
+
+`docker-compose.yml` wird **nie** lokal geändert (sonst blockiert jedes `git pull`).
+Die Bindung kommt aus der `.env`:
+
+```bash
+WEB_BIND=127.0.0.1    # Vorgabe: nur lokal bzw. per SSH-Tunnel
+WEB_BIND=0.0.0.0      # im ganzen LAN/VPN erreichbar
+```
+
+Standalone gibt es keinen HA-Login vor der UI. Bei `WEB_BIND=0.0.0.0` deshalb immer eine
+Anmeldung setzen — in `data/options.json`:
+
+```json
+"web_auth": { "username": "admin", "password": "langes-zufälliges-passwort" }
+```
+
+oder in der `.env`: `EC_WEB_AUTH__USERNAME=admin` / `EC_WEB_AUTH__PASSWORD=…`.
+Dann verlangen alle Seiten und API-Routen HTTP Basic Auth; nur `/health` bleibt offen
+(für Monitoring). Fehlt `web_auth` bei offenem `WEB_BIND`, steht beim Start eine
+deutliche WARNING im Log. Im HA-Addon wird `web_auth` ignoriert — dort schützt der Ingress.
+
+Basic Auth überträgt das Passwort nur Base64-kodiert: über ein VPN oder im eigenen LAN in
+Ordnung, ins Internet nur hinter einem Reverse-Proxy mit HTTPS.
+
+### Konfiguration ohne JSON: `.env`
+
+Statt `data/options.json` kann jede Option auch als Umgebungsvariable in der `.env`
+stehen (Vorlage: `.env.example`):
 
 | Variable | Wirkung |
 |---|---|
 | `EC_<OPTION>=wert` | Option der obersten Ebene, z.B. `EC_SESSION_SOURCE=alfen_http` |
-| `EC_<BEREICH>__<OPTION>=wert` | Option in `api`, `alfen`, `modbus`, z.B. `EC_API__API_TOKEN=…` |
+| `EC_<BEREICH>__<OPTION>=wert` | Option in `api`, `alfen`, `modbus`, `web_auth`, z.B. `EC_API__API_TOKEN=…` |
 | Listen/Objekte | als JSON, z.B. `EC_RFID_WHITELIST=["EFCD083E"]` |
 
-Jede Option aus `config.yaml` geht so, ohne Liste im Code. `true`/`false` werden zu
-Wahrheitswerten, Zahlen zu Zahlen; Passwörter, Tokens, Hosts und URLs bleiben immer
-Text. Kaputtes JSON bricht den Start mit Variablennamen im Log ab, statt still falsch
-zu laufen. Im Log steht, welche Optionen aus der Umgebung kamen — nie die Werte.
-Eine `data/options.json` ist optional; steht ein Wert in beiden, gewinnt die Umgebung.
+`true`/`false` werden zu Wahrheitswerten, Zahlen zu Zahlen; Passwörter, Tokens, Hosts
+und URLs bleiben immer Text. Kaputtes JSON bricht den Start mit Variablennamen ab. Im Log
+steht, welche Optionen aus der Umgebung kamen — nie die Werte. Steht ein Wert in beiden,
+gewinnt die `.env`.
 
-Bei OCPP muss im Log stehen:
+### Änderungen übernehmen — `restart` reicht oft NICHT
 
-```
-Betriebsart: OCPP-Zentralserver (1 Wallbox(en) konfiguriert)
-OCPP-Zentralserver lauscht auf Port 9000
-```
+| Geändert | Befehl |
+|---|---|
+| `data/options.json` | `docker compose restart` |
+| `.env` (EC_-Werte, `TZ`, `LOG_LEVEL`) | `docker compose up -d` |
+| Ports / `WEB_BIND` | `docker compose up -d --force-recreate` |
+| Code (`git pull`) | `docker compose up -d --build --force-recreate` |
 
-Danach die Wallbox auf `ws://<host-ip>:9000/` stellen (Rest wie im Abschnitt
-[Betriebsart OCPP](#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen):
-Log lesen, gemeldete ID in `EC_OCPP_CHARGE_POINTS` eintragen, `docker compose up -d`).
+`docker compose restart` startet nur den Prozess neu — Umgebung und Port-Zuordnung
+bleiben, wie sie beim Erstellen des Containers waren.
 
 ### Drei Dinge, die standalone leicht schiefgehen
 
 1. **`TZ` nicht gesetzt** → alle Zeitstempel in UTC. Eine Ladung am Monatsletzten um
-   23:30 landet dann im Folgemonat. Das Compose-File setzt `TZ` auf `Europe/Berlin`;
-   per `TZ=...` in einer `.env` oder in der Umgebung überschreiben.
-2. **Web-UI offen im Netz.** Im Addon-Betrieb sitzt der HA-Ingress mit Login davor;
-   standalone gibt es das nicht. Das Compose-File bindet die UI daher an
-   `127.0.0.1:8099`. Wer sie von außen braucht, stellt einen Reverse-Proxy mit eigener
-   Authentifizierung davor — **nie** einfach `8099:8099`.
-3. **`./data` nicht gemountet.** Darin liegt `sessions.db`.
-   Ohne Volume sind nach jedem Container-Neustart alle noch nicht an Dolibarr
-   übertragenen Ladungen verloren.
+   23:30 landet dann im Folgemonat. Vorgabe ist `Europe/Berlin`.
+2. **Web-UI offen im Netz ohne `web_auth`.** Dann kann jeder im Netz Karten freischalten
+   und Ladungen übertragen.
+3. **`./data` nicht gemountet.** Darin liegen `options.json` und `sessions.db`. Ohne
+   Volume sind nach jedem Neuerstellen alle noch nicht übertragenen Ladungen verloren.
 
 ### Raspberry Pi
 
 Ein **64-Bit-Betriebssystem** ist nötig (Raspberry Pi OS 64-bit, Ubuntu arm64 — also
 Pi 4, Pi 5 oder Pi 3 mit 64-Bit-Image). Für 32-Bit (`armv7`) gibt es kein Base-Image,
-siehe `build.yaml`. Der Ressourcenbedarf ist gering: Python-Prozess plus SQLite, kein
-Browser, keine Datenbank-Engine.
+siehe `build.yaml`. Der Ressourcenbedarf ist gering: Python-Prozess plus SQLite.
 
 ### Betrieb
 
 ```bash
 docker compose logs -f                 # Live-Log
-docker compose up -d                   # nach Änderung an .env (restart reicht NICHT)
+curl -s localhost:8099/health          # {"status": "ok"} — ohne Anmeldung
 docker compose down                    # stoppen (data/ bleibt erhalten)
 sqlite3 data/sessions.db "SELECT id,status,total_kwh FROM sessions ORDER BY id DESC LIMIT 10;"
 ```
-
-Die Konfiguration wird **beim Start** gelesen. Nach Änderungen an `.env`:
-`docker compose up -d` — ein `docker compose restart` übernimmt neue
-Umgebungsvariablen nicht. Nach Änderungen an `data/options.json` reicht `restart`.
 
 ## Wallbox-Profile (herstellerunabhängige Konfiguration)
 

@@ -3,6 +3,7 @@ import base64
 import binascii
 import hmac
 import logging
+import os
 from http import HTTPStatus
 from typing import Optional, Tuple
 from urllib.parse import unquote, urlsplit
@@ -14,6 +15,7 @@ from websockets.exceptions import NegotiationError
 from ocpp_server.central_system import CentralSystemChargePoint, CentralSystemDeps
 from ocpp_server.redact import install as _install_redaction
 from ocpp_server.settings import OcppSettings
+from placeholders import is_placeholder_password
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +85,10 @@ class OcppServer:
             _LOGGER.warning("Unbekannte Wallbox %s abgewiesen — in ocpp_charge_points eintragen",
                             safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.NOT_FOUND, "Unknown charge point\n")
+        if is_placeholder_password(cp_cfg.password):
+            _LOGGER.error("Wallbox %s abgewiesen: Passwort ist noch der Platzhalter aus der Vorlage "
+                          "— in ocpp_charge_points ein eigenes setzen", safe_cp_id_for_log(cp_id))
+            return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
         if cp_cfg.password:
             creds = parse_basic_auth(request.headers.get('Authorization'))
             # Security Whitepaper A00.FR.204: Benutzername MUSS die Charge-Point-ID sein
@@ -126,7 +132,11 @@ class OcppServer:
                                    process_request=self._process_request,
                                    logger=_WS_LOGGER)
         bound = self._server.sockets[0].getsockname()[1]
-        _LOGGER.info("OCPP-Zentralserver lauscht auf Port %d (ws://<ha-host>:<port>/<charge-point-id>)", bound)
+        if os.getenv('SUPERVISOR_TOKEN'):
+            hint = "ws://<ha-host>:<port>/<charge-point-id>"
+        else:
+            hint = f"ws://<host-ip>:{bound}/<charge-point-id>"
+        _LOGGER.info("OCPP-Zentralserver lauscht auf Port %d (%s)", bound, hint)
         return bound
 
     async def serve_forever(self) -> None:
