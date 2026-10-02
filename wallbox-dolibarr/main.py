@@ -750,6 +750,25 @@ async def check_startup_session():
             _pending_auth = {'rfid_hex': rfid_val, 'time': time.time()}
 
 
+async def probe_dolibarr(url: str) -> None:
+    """Prüft Dolibarr im Hintergrund und meldet das Ergebnis.
+
+    api_state['client'] wird erst bei erreichbarem Dolibarr gesetzt — die
+    Oberfläche lädt darüber die Mitarbeiterliste. Die Übertragung hängt NICHT
+    davon ab, sie versucht es in jedem Intervall selbst.
+    """
+    client = api_client
+    if client is None:
+        return
+    ok = await asyncio.to_thread(client.check_connection)
+    if ok:
+        api_state['client'] = client
+        _LOGGER.info("Dolibarr API Verbindung erfolgreich: %s", url)
+    else:
+        _LOGGER.warning("Dolibarr unter %s gerade nicht erreichbar — Ladungen bleiben im "
+                        "lokalen Puffer und werden in jedem Intervall erneut übertragen", url)
+
+
 async def periodic_transmission():
     """Periodische (und auf Anforderung sofortige) Übertragung an Dolibarr."""
     last_transmit = 0.0
@@ -770,6 +789,8 @@ async def periodic_transmission():
                         session_manager.transmit_completed_sessions, api_client)
                     if result["transmitted"] > 0:
                         _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
+                        if api_state is not None and not api_state.get('client'):
+                            api_state['client'] = api_client
                     if result["failed"] > 0:
                         _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen",
                                       result["failed"])
@@ -1027,12 +1048,13 @@ async def main():
                 retries=app_settings.api_retries,
                 backoff=app_settings.api_backoff,
             )
-            if api_client.check_connection():
-                api_state['client'] = api_client
-                _LOGGER.info("Dolibarr API Verbindung erfolgreich: %s", dolibarr_url)
-            else:
-                _LOGGER.warning("Dolibarr API nicht erreichbar — wird später erneut versucht")
-                api_client = None
+            # NICHT hier auf Erreichbarkeit warten und den Client bei Misserfolg
+            # verwerfen: Das blockierte den Start (bis zu Minuten bei einer
+            # verwerfenden Firewall), und ohne Client lief die Übertragung bis
+            # zum nächsten Neustart nie — obwohl das Log "wird später erneut
+            # versucht" meldete. Geprüft wird jetzt im Hintergrund; die
+            # Übertragung läuft ohnehin und wiederholt Fehlgeschlagenes selbst.
+            asyncio.create_task(probe_dolibarr(dolibarr_url))
         except Exception as e:
             _LOGGER.error("Fehler beim Initialisieren des API-Clients: %s", e)
             api_client = None
