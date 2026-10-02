@@ -24,10 +24,22 @@ GHCR_OWNER = OWNER.lower()
 DEAD = ('ExpenseChrage', 'iron-exx')
 
 
+# Dateien, die die toten Namen absichtlich nennen und daher nicht geprüft werden:
+#   - dieser Test selbst (sein Docstring erklärt den Hintergrund)
+#   - die Planungsdokumente (sie halten den historischen Stand fest)
+# ACHTUNG: geprüft werden nur GETRACKTE Dateien. Eine noch nicht committete Datei
+# ist unsichtbar — genau daran ist dieser Test beim ersten Mal in der CI
+# fehlgeschlagen, nachdem er lokal gruen war.
+_EXEMPT = ('wallbox-dolibarr/tests/test_repo_references.py',
+           'docs/superpowers/plans/')
+
+
 def _tracked_text_files():
     out = subprocess.run(['git', 'ls-files'], cwd=ROOT, capture_output=True, text=True).stdout
     keep = ('.md', '.yaml', '.yml', '.json', '.py', '.php', '.lang', 'Dockerfile')
     for rel in out.splitlines():
+        if rel.startswith(_EXEMPT) or rel in _EXEMPT:
+            continue
         if rel.endswith(keep) or os.path.basename(rel) == 'Dockerfile':
             path = os.path.join(ROOT, rel)
             if os.path.isfile(path):
@@ -37,8 +49,6 @@ def _tracked_text_files():
 def test_no_dead_repository_references():
     hits = []
     for rel, path in _tracked_text_files():
-        if rel.startswith('docs/superpowers/plans/'):
-            continue        # Planungsdokumente halten den historischen Stand fest
         try:
             text = open(path, encoding='utf-8', errors='replace').read()
         except OSError:
