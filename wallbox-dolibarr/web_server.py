@@ -28,10 +28,16 @@ _LOGGER = logging.getLogger(__name__)
 _CSS = """
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg:       #0F172A; --surface:  #1E293B; --surface2: #263348;
-  --border:   #334155; --text:     #F1F5F9; --muted:    #94A3B8;
-  --dim:      #64748B; --primary:  #14B8A6; --primary-d:#0D9488;
-  --success:  #22C55E; --warn:     #F59E0B; --error:    #EF4444;
+  /* Markenpalette systemwerk (aus der Theme-Palette von www.systemwerk.de):
+     dunkles Petrol als Grund, Cyan für alles Interaktive, Orange als Akzent.
+     Orange ist dort die Signaturfarbe — es trägt hier Hervorhebung UND den
+     Zustand "wartet", damit nicht zwei warme Töne nebeneinander konkurrieren. */
+  --bg:       #01171F; --surface:  #05232C; --surface2: #073B4C;
+  --border:   #1E4A5A; --border-l: #3B5760;
+  --text:     #F2F6F6; --muted:    #8EA3AB; --dim:      #5C7580;
+  --primary:  #22A2DC; --primary-d:#0EB1D2; --primary-i:#01171F;
+  --accent:   #F19021; --accent-d: #C9741A;
+  --success:  #00D084; --warn:     #F19021; --error:    #CF2E2E;
 }
 html, body {
   background: var(--bg); color: var(--text);
@@ -40,7 +46,9 @@ html, body {
 }
 /* ── Header ── */
 .hdr {
-  background: var(--surface); border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(34,162,220,.18);
   padding: 0 20px; height: 54px;
   display: flex; align-items: center; justify-content: space-between;
   position: sticky; top: 0; z-index: 50;
@@ -48,12 +56,12 @@ html, body {
 .hdr-left { display: flex; align-items: center; gap: 11px; }
 .hdr-logo {
   width: 32px; height: 32px;
-  background: linear-gradient(135deg, #22C55E, #14B8A6);
+  background: linear-gradient(140deg, #22A2DC 0%, #0EB1D2 45%, #F19021 100%);
   border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.hdr-name { font-size: 15px; font-weight: 700; }
+.hdr-name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
 .hdr-sub  { font-size: 11px; color: var(--muted); }
 .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
@@ -77,7 +85,10 @@ html, body {
   border: 1px dashed var(--border); border-radius: 9px;
 }
 /* ── Hero + Streifen ── */
-.hero-val { font-size: 38px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.hero-val {
+  font-size: 42px; font-weight: 800; line-height: 1; letter-spacing: -.025em;
+  font-variant-numeric: tabular-nums; color: var(--accent);
+}
 .hero-unit { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 7px; }
 .hero-lbl { font-size: 12px; color: var(--muted); margin-top: 5px; }
 .hero-side { font-size: 12px; color: var(--muted); text-align: right; line-height: 1.7; }
@@ -110,7 +121,7 @@ html, body {
   letter-spacing: .06em; color: var(--muted); margin-bottom: 4px;
 }
 .kpi-val {
-  font-size: 21px; font-weight: 700; line-height: 1.15;
+  font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -.015em;
   font-variant-numeric: tabular-nums;
 }
 .kpi-unit { font-size: 11px; font-weight: 600; color: var(--muted); margin-left: 5px; }
@@ -126,6 +137,10 @@ html, body {
   border-bottom: 2px solid transparent; transition: all .15s;
 }
 .nav a.active { color: var(--primary); border-bottom-color: var(--primary); }
+.nav a.active::after {
+  content: ""; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--accent); margin-left: 1px;
+}
 .nav a:hover:not(.active) { color: var(--text); }
 /* ── Layout ── */
 .page { max-width: 820px; margin: 22px auto; padding: 0 16px; }
@@ -149,7 +164,8 @@ html, body {
 /* ── Card ── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 9px; padding: 20px; margin-bottom: 13px;
+  border-radius: 12px; padding: 20px; margin-bottom: 14px;
+  box-shadow: inset 0 1px 0 rgba(242,246,246,.04);
 }
 .card-title {
   font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -178,8 +194,8 @@ select option { background: var(--surface); color: var(--text); }
 .btn-save {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   width: 100%; padding: 11px; margin-top: 17px;
-  background: var(--primary); color: #fff;
-  border: none; border-radius: 7px;
+  background: var(--primary); color: var(--primary-i);
+  border: none; border-radius: 8px; letter-spacing: .01em;
   font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
 }
 .btn-save:hover { background: var(--primary-d); }
@@ -190,7 +206,8 @@ select option { background: var(--surface); color: var(--text); }
   border: 1.5px solid var(--border); border-radius: 7px;
   font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
 }
-.btn-transmit:hover { color: var(--warn); border-color: var(--warn); }
+.btn-transmit:hover { color: var(--accent); border-color: var(--accent);
+                      background: rgba(241,144,33,.07); }
 .btn-dl {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 6px 11px; background: transparent;
@@ -201,9 +218,9 @@ select option { background: var(--surface); color: var(--text); }
 .btn-dl:hover { color: var(--success); border-color: var(--success); }
 /* ── Messages ── */
 .msg { padding: 11px 14px; border-radius: 7px; font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
-.ok  { background: rgba(34,197,94,.1);  color: #4ADE80; border: 1px solid rgba(34,197,94,.2);  }
-.err { background: rgba(239,68,68,.1);  color: #F87171; border: 1px solid rgba(239,68,68,.2);  }
-.warn{ background: rgba(245,158,11,.1); color: #FCD34D; border: 1px solid rgba(245,158,11,.2); }
+.ok  { background: rgba(0,208,132,.12);  color: #4FE3AC; border: 1px solid rgba(0,208,132,.26); }
+.err { background: rgba(207,46,46,.14);  color: #F58585; border: 1px solid rgba(207,46,46,.3);  }
+.warn{ background: rgba(241,144,33,.13); color: #F7B96B; border: 1px solid rgba(241,144,33,.3); }
 /* ── Session rows ── */
 .s-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -218,10 +235,10 @@ select option { background: var(--surface); color: var(--text); }
   padding: 3px 8px; border-radius: 20px;
   font-size: 11px; font-weight: 700; white-space: nowrap;
 }
-.b-ok   { background: rgba(34,197,94,.12);   color: #4ADE80; }
-.b-pend { background: rgba(245,158,11,.12);  color: #FCD34D; }
-.b-disc { background: rgba(100,116,139,.1);  color: #94A3B8; }
-.b-inc  { background: rgba(245,158,11,.08);  color: #FCD34D; }
+.b-ok   { background: rgba(0,208,132,.14);   color: #4FE3AC; }
+.b-pend { background: rgba(241,144,33,.15);  color: #F7B96B; }
+.b-disc { background: rgba(92,117,128,.14);  color: #8EA3AB; }
+.b-inc  { background: rgba(241,144,33,.09);  color: #F7B96B; }
 /* ── Table ── */
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -680,14 +697,14 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
             +esc(c.last_rejected_id_tag)+'</code> \u2014 in rfid_whitelist und Dolibarr eintragen</div>'
           : '';
         return '<div>'+esc(c.wallbox_id||c.id)+' \u00b7 Z\u00e4hler: <strong>'+kwh+'</strong>'
-          +'<span style="background:'+col+';color:#0F172A;padding:1px 7px;border-radius:3px;'
+          +'<span style="background:'+col+';color:var(--primary-i);padding:1px 7px;border-radius:3px;'
           +'font-size:11px;font-weight:700;margin-left:6px">'+esc(st)+'</span>'
           +'<span style="float:right;color:var(--dim);font-size:11px">'+esc(c.last_seen||'')+'</span>'
           +rej+'</div>';
       }).join('');
     } else if(hasSensor){
       var chip=state
-        ? '<span style="background:'+stateColor+';color:#0F172A;padding:1px 7px;'
+        ? '<span style="background:'+stateColor+';color:var(--primary-i);padding:1px 7px;'
           +'border-radius:3px;font-size:11px;font-weight:700;margin-left:6px">'
           +esc(state)+'</span>'
         : '';
@@ -847,7 +864,7 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
                 f'<div style="color:var(--dim);font-size:11px">'
                 f'Hash {html.escape(t["hash_prefix"])}… · {t["seen_count"]}x gesehen · '
                 f'zuletzt {html.escape(t["last_seen"] or "—")}</div></div>'
-                f'<span style="background:{t["mode_color"]};color:#0F172A;padding:2px 8px;'
+                f'<span style="background:{t["mode_color"]};color:var(--primary-i);padding:2px 8px;'
                 f'border-radius:3px;font-size:11px;font-weight:700">'
                 f'{html.escape(t["mode_label"])}</span>'
                 f'<span style="color:var(--dim);font-size:11px">{html.escape(t["mode_hint"])}</span>'
@@ -894,15 +911,15 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
 
 
 # ── Diagrammfarben ─────────────────────────────────────────────────────────
-# Gewählt für die dunkle Fläche (#1E293B) und mit dem Paletten-Validator
+# Gewählt für die dunkle Petrol-Fläche (#073B4C) und mit dem Paletten-Validator
 # geprüft: Helligkeitsband L 0.48–0.67, Chroma ≥ 0.1, CVD-Trennung
 # ΔE 17.3 (Deutan) / 9.4 (Tritan), Normalsicht ΔE 24.6, Kontrast ≥ 3:1.
 # Bewusst NICHT die Statusfarben (warn/error) — die sind für Zustände
 # reserviert und dürfen keine Datenserie einfärben.
 SERIES_BUSINESS = '#199e70'      # Aqua, nah am Markenton
 SERIES_PRIVATE = '#9085e9'       # Violett
-_CHART_GRID = 'rgba(148,163,184,.18)'
-_CHART_AXIS = '#94A3B8'
+_CHART_GRID = 'rgba(142,163,171,.20)'
+_CHART_AXIS = '#8EA3AB'
 _STACK_GAP = 2.0          # Flächenspalt zwischen gestapelten Segmenten
 
 
