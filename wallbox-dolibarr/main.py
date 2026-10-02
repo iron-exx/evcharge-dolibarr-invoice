@@ -49,7 +49,10 @@ from web_server import start_web_server
 from tag_release import TagReleaser
 from tag_learning import LearnBuffer
 from app_settings import resolve_app_settings
+import env_config
 from env_config import apply_env_overrides
+from admin import is_standalone
+from admin.web import AdminContext, new_setup_code
 from placeholders import find_placeholders
 from ocpp_server.central_system import CentralSystemDeps
 from ocpp_server.server import OCPP_PORT, OcppServer
@@ -179,17 +182,15 @@ def db_path() -> str:
     return os.path.join(data_dir(), 'sessions.db')
 
 
-def warn_if_web_exposed(config: dict) -> None:
-    """Standalone: Web-UI über WEB_BIND im Netz, aber ohne Anmeldung."""
+def warn_if_web_exposed(has_account: bool) -> None:
+    """Standalone: Web-UI über WEB_BIND im Netz, aber noch ohne Admin-Konto."""
     if os.getenv('SUPERVISOR_TOKEN'):
         return   # HA-Addon: Ingress mit HA-Login davor
     bind = os.getenv('WEB_BIND', '127.0.0.1').strip()
-    auth = config.get('web_auth') or {}
-    if bind not in ('127.0.0.1', 'localhost', '::1') and not (auth.get('username') and auth.get('password')):
-        _LOGGER.warning("Web-UI ist über WEB_BIND=%s im Netz erreichbar, aber OHNE Anmeldung — "
-                        "jeder im Netz kann Karten freischalten und Ladungen übertragen. "
-                        "web_auth (username/password) in data/options.json bzw. "
-                        "EC_WEB_AUTH__USERNAME/EC_WEB_AUTH__PASSWORD setzen.", bind)
+    if bind not in ('127.0.0.1', 'localhost', '::1') and not has_account:
+        _LOGGER.warning("Web-UI ist über WEB_BIND=%s im Netz erreichbar und noch OHNE Admin-Konto — "
+                        "jetzt im Browser die Ersteinrichtung abschließen (Einrichtungscode steht eine Zeile darüber). "
+                        "Bis dahin ist die Oberfläche nur lesend.", bind)
 
 
 def load_config():
@@ -790,6 +791,71 @@ async def probe_dolibarr(url: str) -> None:
                         "lokalen Puffer und werden in jedem Intervall erneut übertragen", url)
 
 
+_transmission_task = None
+_ocpp_server = None
+
+
+def ensure_transmission() -> None:
+    """Startet die periodische Übertragung genau einmal (auch nachträglich per Oberfläche)."""
+    global _transmission_task
+    if _transmission_task is None or _transmission_task.done():
+        _transmission_task = asyncio.create_task(periodic_transmission())
+
+
+def reload_dolibarr(url: str, token: str) -> None:
+    """Hot-Reload aus der Oberfläche: neuer API-Client, Übertragung läuft weiter."""
+    global api_client
+    api_client = WallboxApiClient(base_url=url, api_token=token,
+                                  timeout=app_settings.api_timeout,
+                                  retries=app_settings.api_retries,
+                                  backoff=app_settings.api_backoff)
+    api_state['client'] = None
+    asyncio.create_task(probe_dolibarr(url))
+    ensure_transmission()
+    _transmit_requested.set()
+    _LOGGER.info("Dolibarr-Zugang aus der Oberfläche übernommen: %s", url)
+
+
+def reload_ocpp() -> bool:
+    """Neue ocpp_charge_points ohne Neustart — nur, wenn der OCPP-Server schon läuft."""
+    if _ocpp_server is None:
+        return False
+    _ocpp_server.update_settings(resolve_ocpp_settings(current_config))
+    _LOGGER.info("OCPP-Wallboxen aus der Oberfläche übernommen")
+    return True
+
+
+def restart_process() -> None:
+    # ponytail: harter Exit, Docker (restart: unless-stopped) startet neu. Ohne
+    # Neustartrichtlinie bleibt der Container aus — steht so in der Oberfläche.
+    _LOGGER.warning("Neustart aus der Oberfläche angefordert")
+    logging.shutdown()
+    os._exit(0)
+
+
+def build_admin_context():
+    """Standalone: Anmeldung/Assistent. Übernimmt ein altes web_auth als Admin-Konto."""
+    ctx = AdminContext(data_dir=data_dir(), config=current_config, session_manager=session_manager,
+                       ocpp_port=app_settings.ocpp_port, reload_dolibarr=reload_dolibarr,
+                       reload_ocpp=reload_ocpp, restart=restart_process)
+    auth = current_config.get('web_auth') or {}
+    if not ctx.accounts.exists() and auth.get('username') and auth.get('password'):
+        ctx.accounts.create(str(auth['username']), str(auth['password']))
+        ctx.audit.record('system', 'admin_konto', None, auth['username'], 'aus web_auth übernommen')
+        _LOGGER.info("web_auth als Admin-Konto übernommen (Passwort jetzt gehasht in data/admin.json)")
+    if 'web_auth' in ctx.store.load():
+        ctx.store.remove('web_auth')
+        _LOGGER.info("web_auth aus options.json entfernt — Klartext-Passwort wird nicht mehr gebraucht")
+    if env_config.env_overrides('web_auth.password'):
+        _LOGGER.info("EC_WEB_AUTH__* wird nicht mehr gebraucht und kann aus der .env entfernt werden")
+    current_config.pop('web_auth', None)
+    if not ctx.accounts.exists():
+        ctx.setup_code = new_setup_code()
+        _LOGGER.warning("Ersteinrichtung offen — Einrichtungscode: %s  (Web-UI → Ersteinrichtung, "
+                        "Port %d)", ctx.setup_code, app_settings.web_port)
+    return ctx
+
+
 async def periodic_transmission():
     """Periodische (und auf Anforderung sofortige) Übertragung an Dolibarr."""
     last_transmit = 0.0
@@ -897,7 +963,9 @@ async def run_ocpp_mode(settings) -> None:
     if not settings.charge_points:
         _LOGGER.error("session_source=ocpp, aber keine ocpp_charge_points konfiguriert — "
                       "jede Wallbox wird abgewiesen")
+    global _ocpp_server
     server = build_ocpp_server(settings)
+    _ocpp_server = server
     await server.start(app_settings.ocpp_bind, app_settings.ocpp_port)
     # KEINE Restart-Recovery wie im HA-Pfad: offene Sessions bleiben 'active' —
     # die Wallbox liefert StopTransaction aus ihrer Offline-Queue nach.
@@ -907,7 +975,7 @@ async def run_ocpp_mode(settings) -> None:
                      len(open_sessions))
     asyncio.create_task(ocpp_stale_session_guard())
     if api_client:
-        asyncio.create_task(periodic_transmission())
+        ensure_transmission()
     asyncio.create_task(start_web_server(session_manager, current_config, api_state,
                                          port=app_settings.web_port,
                                          host=app_settings.web_bind))
@@ -944,7 +1012,7 @@ async def run_modbus_mode(settings) -> None:
 
     asyncio.create_task(stale_session_guard_modbus())
     if api_client:
-        asyncio.create_task(periodic_transmission())
+        ensure_transmission()
     asyncio.create_task(start_web_server(session_manager, current_config, api_state,
                                          port=app_settings.web_port,
                                          host=app_settings.web_bind))
@@ -998,7 +1066,7 @@ async def run_alfen_mode(settings) -> None:
     """Betriebsart session_source=alfen_http: kein HA, kein OCPP-Backend-Slot."""
     runner = build_alfen_runner(settings)
     if api_client:
-        asyncio.create_task(periodic_transmission())
+        ensure_transmission()
     asyncio.create_task(start_web_server(session_manager, current_config, api_state,
                                          port=app_settings.web_port,
                                          host=app_settings.web_bind))
@@ -1044,10 +1112,10 @@ async def main():
             current_config.get('wallbox_profile', 'alfen_eve'), profile.auth_mode, profile.state_mode,
             profile.sensor_rfid, profile.sensor_energy, profile.sensor_state,
         )
-    warn_if_web_exposed(current_config)
     placeholders = find_placeholders(current_config)
     for field in placeholders:
-        _LOGGER.error("Platzhalter in %s nicht ersetzt: %s", config_path(), field)
+        _LOGGER.error("Platzhalter in %s nicht ersetzt: %s%s", config_path(), field,
+                      " – im Browser unter Einrichtung beheben" if is_standalone() else "")
 
     # API Client initialisieren — flat config (dolibarr_url auf Top-Level)
     api_client = None
@@ -1063,6 +1131,9 @@ async def main():
         'wallbox_state': None,     # 'Charging' / 'Idle' / 'Stopped' / None
         'last_update': None,       # ISO-Timestamp der letzten Sensor-Aktualisierung
     }
+    if is_standalone():
+        api_state['admin'] = build_admin_context()
+        warn_if_web_exposed(api_state['admin'].accounts.exists())
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")
@@ -1216,7 +1287,7 @@ async def main():
 
         # Hintergrund-Task starten
         if api_client:
-            transmission_task = asyncio.create_task(periodic_transmission())
+            ensure_transmission()
             _LOGGER.info("API-Transmission Hintergrund-Task gestartet")
 
         # Ingress Web-Server für manuelle Ladevorgänge starten

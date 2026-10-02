@@ -9,6 +9,7 @@ JSON (Fehler = Abbruch), Zahlen → Zahl, sonst Text. Geheimnisse bleiben Text.
 import copy
 import json
 import logging
+import os
 import re
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,3 +51,14 @@ def apply_env_overrides(config: dict, environ) -> dict:
         target[path[-1]] = _parse(name, path[-1], raw)
         _LOGGER.info("Option aus Umgebung gesetzt: %s", '.'.join(path))
     return result
+
+
+def env_name(field: str) -> str:
+    """'api.api_token' → 'EC_API__API_TOKEN'."""
+    return PREFIX + '__'.join(p.upper() for p in field.split('.'))
+
+
+def env_overrides(field: str, environ=None) -> bool:
+    """True, wenn eine Umgebungsvariable diesen Wert überschreibt."""
+    environ = os.environ if environ is None else environ
+    return bool(environ.get(env_name(field), '').strip())

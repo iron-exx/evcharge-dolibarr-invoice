@@ -70,11 +70,12 @@ while :; do
     echo "  Bitte eine IPv4-Adresse angeben, z.B. 127.0.0.1 oder 0.0.0.0."
 done
 [ "$web_bind" = 127.0.0.1 ] && auth_default=n || auth_default=j
-ask want_auth "Anmeldung für die Web-UI (web_auth) einrichten? j/n" "$auth_default"
+ask want_auth "Admin-Konto für die Web-UI gleich hier anlegen? (sonst Ersteinrichtung im Browser) j/n" "$auth_default"
 web_user=""; web_pw=""
 if [[ "$want_auth" =~ ^[jJyY] ]]; then
     ask web_user "Benutzername" "admin"
-    read -r -s -p "Passwort (leer = zufällig erzeugen, Eingabe unsichtbar): " web_pw; echo
+    read -r -s -p "Passwort, mind. 10 Zeichen (leer = zufällig erzeugen, Eingabe unsichtbar): " web_pw; echo
+    [ -z "$web_pw" ] || [ ${#web_pw} -ge 10 ] || die "Passwort zu kurz (mind. 10 Zeichen)"
     [ -n "$web_pw" ] || web_pw=$(openssl rand -hex 8 2>/dev/null || head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
 fi
 

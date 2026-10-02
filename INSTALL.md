@@ -156,7 +156,7 @@ docker compose logs -f
 
 Das Skript schreibt `data/options.json` (mit zufälligem OCPP-Passwort) und die `.env`
 und gibt am Ende Backend-URL `ws://<IP>:9000/`, Charge-Point-ID und Passwort für die
-Wallbox aus. Web-UI im LAN/VPN (`WEB_BIND=0.0.0.0`), Anmeldung (`web_auth`),
+Wallbox aus. Web-UI im LAN/VPN (`WEB_BIND=0.0.0.0`), Ersteinrichtung und Anmeldung im Browser,
 Konfiguration per `.env` und welcher Befehl nach welcher Änderung nötig ist
 (`restart` reicht bei Ports **nicht**, dann `docker compose up -d --force-recreate`):
 Proxmox-CT-Firewall (8099 nur Admin-Netz, 9000 nur Wallbox-Netz):

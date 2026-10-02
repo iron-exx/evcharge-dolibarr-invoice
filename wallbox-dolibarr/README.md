@@ -443,7 +443,7 @@ weder Token noch Deploy Key.
 |---|---|---|
 | Konfiguration | HA-Oberfläche schreibt `/data/options.json` | `setup-standalone.sh` schreibt `data/options.json`; alternativ `.env` |
 | Betriebsarten | alle | `ocpp`, `alfen_http`, `modbus` (kein `ha_sensors`) |
-| Web-UI-Schutz | HA-Ingress mit HA-Login | lokal gebunden; im LAN **nur mit `web_auth`** |
+| Web-UI-Schutz | HA-Ingress mit HA-Login | eigenes Admin-Konto (Ersteinrichtung im Browser) |
 | Zeitzone | setzt der Supervisor | `TZ` in der `.env` (Vorgabe `Europe/Berlin`) |
 | Updates | HA-Addon-Store | `git pull` + neu bauen |
 
@@ -465,7 +465,8 @@ docker compose logs -f
 - setzt ein **zufälliges OCPP-Passwort** (`openssl rand -hex 12`),
 - fragt Charge-Point-ID, Dolibarr-URL, API-Token (unsichtbar) und RFID-Karten ab,
 - fragt `WEB_BIND` ab (Vorgabe `127.0.0.1`, fürs LAN/VPN `0.0.0.0`) und schreibt die `.env`,
-- richtet optional eine Anmeldung (`web_auth`) ein — bei `0.0.0.0` ist „ja“ vorgeschlagen,
+- legt optional gleich das Admin-Konto an (als `web_auth`, beim ersten Start übernommen und
+  gehasht; sonst Ersteinrichtung im Browser) — bei `0.0.0.0` ist „ja“ vorgeschlagen,
   ein leeres Passwort wird zufällig erzeugt,
 - validiert das JSON und bricht ab, falls noch ein Vorlagenwert drinsteht,
 - gibt am Ende **GUI-URL, OCPP-Backend-URL (`ws://<IP>:9000/`), Charge-Point-ID und
@@ -495,7 +496,7 @@ Wallbox mit Vorlagen-Passwort wird abgewiesen:
 ERROR - Platzhalter in /data/options.json nicht ersetzt: api.dolibarr_url
 ```
 
-### Web-UI im LAN/VPN: `WEB_BIND` und `web_auth`
+### Web-UI im LAN/VPN: `WEB_BIND`
 
 `docker-compose.yml` wird **nie** lokal geändert (sonst blockiert jedes `git pull`).
 Die Bindung kommt aus der `.env`:
@@ -505,20 +506,59 @@ WEB_BIND=127.0.0.1    # Vorgabe: nur lokal bzw. per SSH-Tunnel
 WEB_BIND=0.0.0.0      # im ganzen LAN/VPN erreichbar
 ```
 
-Standalone gibt es keinen HA-Login vor der UI. Bei `WEB_BIND=0.0.0.0` deshalb immer eine
-Anmeldung setzen — in `data/options.json`:
+### Anmeldung und Ersteinrichtung im Browser
 
-```json
-"web_auth": { "username": "admin", "password": "langes-zufälliges-passwort" }
+Standalone ist die Web-UI zugleich die Verwaltungsoberfläche. Im HA-Addon ändert
+sich nichts: dort schützt der Ingress, und die Konfiguration bleibt bei Home Assistant.
+
+**Erster Aufruf** (noch kein Admin-Konto): Die Oberfläche öffnet den Assistenten.
+Bis das Konto angelegt ist, ist alles nur lesbar. Damit sich niemand im Netz
+zuerst zum Admin macht, verlangt Schritt 1 den **Einrichtungscode** aus dem Log:
+
+```bash
+docker compose logs expensecharge | grep Einrichtungscode
 ```
 
-oder in der `.env`: `EC_WEB_AUTH__USERNAME=admin` / `EC_WEB_AUTH__PASSWORD=…`.
-Dann verlangen alle Seiten und API-Routen HTTP Basic Auth; nur `/health` bleibt offen
-(für Monitoring). Fehlt `web_auth` bei offenem `WEB_BIND`, steht beim Start eine
-deutliche WARNING im Log. Im HA-Addon wird `web_auth` ignoriert — dort schützt der Ingress.
+Der Assistent führt dann durch:
 
-Basic Auth überträgt das Passwort nur Base64-kodiert: über ein VPN oder im eigenen LAN in
-Ordnung, ins Internet nur hinter einem Reverse-Proxy mit HTTPS.
+1. Admin-Konto anlegen (Passwort mind. 10 Zeichen, gespeichert als scrypt-Hash in
+   `data/admin.json`, nie im Klartext)
+2. Dolibarr-URL und Token, mit **„Verbindung testen“** — prüft DNS, TLS, HTTP,
+   Token und Modul-Version und sagt bei jedem Fehler, was zu tun ist
+3. Erste OCPP-Wallbox: Charge-Point-ID, Name, `wallbox_id`, Passwort (leer = zufällig)
+4. RFID-Karten (eine je Zeile, `UID; Bezeichnung`) — gelten als geschäftlich
+5. Zusammenfassung mit Backend-URL, Charge-Point-ID und Passwort zum Kopieren
+   (das Passwort wird nur dieses eine Mal angezeigt)
+
+Stehen noch Platzhalter aus der Vorlage in der Konfiguration, leitet die Übersicht
+nach dem Anmelden in den passenden Schritt.
+
+**Danach** verlangt jede Seite die Anmeldung, nur `/health` bleibt offen (Monitoring).
+
+- Sitzung: Cookie `HttpOnly` + `SameSite=Strict`, 12 Stunden; übersteht Neustarts.
+  „Abmelden“ beendet alle Sitzungen.
+- Nach 5 Fehlversuchen ist die Anmeldung von dieser Adresse 5 Minuten gesperrt.
+- Jedes Formular ist gegen CSRF geschützt.
+- Änderungen schreibt die Oberfläche atomar nach `data/options.json`, vorher eine
+  Sicherung `options.json.bak.<Zeit>` (die letzten 10 bleiben).
+- Jede Änderung steht im **Protokoll** (Zeit, Benutzer, Feld, alt → neu; Geheimnisse
+  nur maskiert), Datei `data/audit.log`.
+- Dolibarr-Zugang und neue Wallboxen gelten **sofort**, ohne Neustart. Ein Wechsel der
+  Betriebsart braucht einen Neustart — dafür gibt es den Knopf **„Übernehmen und neu
+  starten“** (der Container beendet sich, Docker startet ihn per `restart: unless-stopped`
+  neu).
+- Ist ein Wert zusätzlich als `EC_…`-Umgebungsvariable gesetzt, warnt die Oberfläche:
+  die Variable hat Vorrang.
+
+**Alter `web_auth`-Eintrag:** Ein vorhandenes `web_auth` (z.B. von `setup-standalone.sh`)
+wird beim Start als Admin-Konto übernommen und danach aus `options.json` entfernt — das
+Klartext-Passwort liegt dann nirgends mehr. Kein Einrichtungscode nötig.
+
+**Passwort vergessen:** `data/admin.json` löschen und den Container neu starten — dann
+gibt es einen neuen Einrichtungscode, Konfiguration und Ladungen bleiben erhalten.
+
+Über ein VPN oder im eigenen LAN ist HTTP in Ordnung; ins Internet nur hinter einem
+Reverse-Proxy mit HTTPS.
 
 Lokale Anpassungen gehören in `.env` (und notfalls in eine
 `docker-compose.override.yml`) — beide sind per `.gitignore` ausgeschlossen und
@@ -536,7 +576,7 @@ Läuft der Container in einem LXC unter Proxmox, die Ports in der CT-Firewall
 | `9000/tcp` | **nur das Wallbox-Netz** | OCPP — hier verbindet sich die Wallbox |
 
 Beide Ports dürfen nie aus dem Internet erreichbar sein. Die Firewall ersetzt
-`web_auth` nicht, sie ergänzt es.
+die Anmeldung nicht, sie ergänzt sie.
 
 ### Konfiguration ohne JSON: `.env`
 
@@ -546,7 +586,7 @@ stehen (Vorlage: `.env.example`):
 | Variable | Wirkung |
 |---|---|
 | `EC_<OPTION>=wert` | Option der obersten Ebene, z.B. `EC_SESSION_SOURCE=alfen_http` |
-| `EC_<BEREICH>__<OPTION>=wert` | Option in `api`, `alfen`, `modbus`, `web_auth`, z.B. `EC_API__API_TOKEN=…` |
+| `EC_<BEREICH>__<OPTION>=wert` | Option in `api`, `alfen`, `modbus`, z.B. `EC_API__API_TOKEN=…` |
 | Listen/Objekte | als JSON, z.B. `EC_RFID_WHITELIST=["EFCD083E"]` |
 
 `true`/`false` werden zu Wahrheitswerten, Zahlen zu Zahlen; Passwörter, Tokens, Hosts
@@ -570,8 +610,9 @@ bleiben, wie sie beim Erstellen des Containers waren.
 
 1. **`TZ` nicht gesetzt** → alle Zeitstempel in UTC. Eine Ladung am Monatsletzten um
    23:30 landet dann im Folgemonat. Vorgabe ist `Europe/Berlin`.
-2. **Web-UI offen im Netz ohne `web_auth`.** Dann kann jeder im Netz Karten freischalten
-   und Ladungen übertragen.
+2. **Ersteinrichtung nicht abgeschlossen.** Solange kein Admin-Konto existiert, kann jeder
+   mit dem Einrichtungscode aus dem Log das Konto anlegen — also gleich nach dem ersten
+   Start im Browser abschließen.
 3. **`./data` nicht gemountet.** Darin liegen `options.json` und `sessions.db`. Ohne
    Volume sind nach jedem Neuerstellen alle noch nicht übertragenen Ladungen verloren.
 

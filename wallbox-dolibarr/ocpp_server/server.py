@@ -78,6 +78,10 @@ class OcppServer:
         self._server = None
         self.connected = {}   # cp_id → aktuelle Verbindung
 
+    def update_settings(self, settings: OcppSettings) -> None:
+        """Neue Wallbox-Liste ohne Neustart; bestehende Verbindungen bleiben."""
+        self._settings = settings
+
     async def _process_request(self, connection, request):
         cp_id = charge_point_id_from_path(request.path)
         cp_cfg = self._settings.find(cp_id)

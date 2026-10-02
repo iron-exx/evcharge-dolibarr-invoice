@@ -81,6 +81,13 @@ if (empty($expected_token) || !hash_equals($expected_token, (string) $given_toke
     wbemp_json_exit(401, array('success' => false, 'error' => 'Unauthorized'));
 }
 
+// Modul-Version für "Verbindung testen" im Addon (erst nach erfolgreicher Auth)
+dol_include_once('/wallboxbilling/core/modules/modWallboxbilling.class.php');
+if (class_exists('modWallboxbilling')) {
+    $wbmod = new modWallboxbilling($db);
+    header('X-Wallboxbilling-Version: '.$wbmod->version);
+}
+
 // --- Mitarbeiter mit mindestens einem zugeordneten Tag ---------------------
 // SEC-01: rfid_hash wird hier NIE mit ausgegeben, nur login + Name.
 $res_emp = $db->query(

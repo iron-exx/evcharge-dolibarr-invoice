@@ -26,7 +26,7 @@ class modWallboxbilling extends DolibarrModules
 
         $this->description = 'ExpenseCharge — Ladevorgänge. Spesen. Abgerechnet.';
 
-        $this->version    = '2.3.5';
+        $this->version    = '2.3.6';
         $this->const_name = 'MAIN_MODULE_'.strtoupper($this->name);
         $this->special    = 0;
         $this->picto      = 'fa-charging-station';

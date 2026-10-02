@@ -9,9 +9,7 @@ Seiten:
   GET  /history       Monatliche Verlaufsansicht
   GET  /export        CSV-Export für einen Monat
 """
-import base64
 import csv
-import hmac
 import io
 import logging
 import os
@@ -21,6 +19,8 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from aiohttp import web
+
+from admin import web as admin_web
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +75,12 @@ html, body {
 }
 .hdr-name { font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
 .hdr-sub  { font-size: 11px; color: var(--muted); }
+.hdr-right { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.acct { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin: 0; }
+.acct a, .acct button { background: none; border: none; padding: 0; font: inherit; font-weight: 600;
+  color: var(--primary-d); cursor: pointer; text-decoration: none; }
+@media (max-width: 560px) { .hdr { padding: 0 14px; } .hdr-sub { display: none; } .nav { padding: 0 8px; }
+  .nav a { padding: 11px 11px; } }
 .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .dot-ok  { background: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
@@ -145,7 +151,10 @@ html, body {
 .nav {
   background: var(--surface); border-bottom: 1px solid var(--border);
   padding: 0 20px; display: flex; gap: 2px;
+  overflow-x: auto; scrollbar-width: none;   /* Handy: Reiter wischen statt Seite verbreitern */
 }
+.nav::-webkit-scrollbar { display: none; }
+.nav a { flex-shrink: 0; white-space: nowrap; }
 .nav a {
   display: inline-flex; align-items: center; gap: 7px; padding: 11px 15px;
   text-decoration: none; font-size: 13px; font-weight: 600; color: var(--muted);
@@ -385,12 +394,15 @@ def _base(active, content, base_href=''):
       <div class="hdr-sub">Ladevorgänge · Spesen · Abgerechnet</div>
     </div>
   </div>
+  <div class="hdr-right">
+  <!--ec-account-->
   <div class="chip">
     <span class="dot" id="conn-dot"></span>
     <span id="conn-lbl">—</span>
   </div>
+  </div>
 </header>
-<nav class="nav">{nav_form}{nav_hist}{nav_tags}{nav_sys}</nav>
+<nav class="nav">{nav_form}{nav_hist}{nav_tags}{nav_sys}<!--ec-nav-extra--></nav>
 <div class="page">{content}</div>
 </body>
 </html>"""
@@ -1422,28 +1434,6 @@ def _build_history_page(session_manager, year, month, base_href=''):
 # App-Factory
 # ---------------------------------------------------------------------------
 
-def _auth_middlewares(config) -> list:
-    """HTTP Basic Auth für alle Routen außer /health, wenn web_auth gesetzt ist.
-
-    Nur standalone: im HA-Addon schützt der Ingress mit dem HA-Login.
-    """
-    auth = config.get('web_auth') or {}
-    user, password = str(auth.get('username') or ''), str(auth.get('password') or '')
-    if not (user and password) or os.getenv('SUPERVISOR_TOKEN'):
-        return []
-    expected = ('Basic ' + base64.b64encode(f'{user}:{password}'.encode()).decode()).encode()
-
-    @web.middleware
-    async def basic_auth(request, handler):
-        if request.path == '/health' or hmac.compare_digest(
-                request.headers.get('Authorization', '').encode(), expected):
-            return await handler(request)
-        return web.Response(status=401, text='Anmeldung erforderlich\n',
-                            headers={'WWW-Authenticate': 'Basic realm="ExpenseCharge", charset="UTF-8"'})
-
-    return [basic_auth]
-
-
 def create_app(session_manager, config, api_state):
     """
     api_state: dict mit key 'client' → WallboxApiClient oder None.
@@ -1718,7 +1708,13 @@ def create_app(session_manager, config, api_state):
     async def handle_health(request):
         return web.json_response({'status': 'ok'})
 
-    app = web.Application(middlewares=_auth_middlewares(config))
+    # Standalone: Anmeldung, CSRF, Assistent (admin/). Im HA-Addon gibt es keinen
+    # AdminContext — dort schützt der Ingress und die Oberfläche bleibt wie bisher.
+    admin_ctx = (api_state or {}).get('admin')
+    app = web.Application(middlewares=[admin_web.middleware(admin_ctx)] if admin_ctx else [])
+    if admin_ctx:
+        admin_ctx.render = _base
+        admin_web.register(app, admin_ctx)
     app.router.add_get('/health',    handle_health)
     app.router.add_get('/',          handle_get)
     app.router.add_post('/',         handle_post)
