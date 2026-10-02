@@ -13,7 +13,7 @@ LABEL \
   io.hass.type="addon" \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.arch="${BUILD_ARCH}" \
-  org.opencontainers.image.source="https://github.com/iron-exx/ExpenseChrage"
+  org.opencontainers.image.source="https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge"
 
 # Alle Abhängigkeiten über apk. 5-fach-Retry gegen transiente Aussetzer.
 #

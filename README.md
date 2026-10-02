@@ -110,7 +110,7 @@ einer Quelle, ohne HA und ohne den OCPP-Backend-Slot zu belegen.
 
 ### 2. Home Assistant Addon
 
-1. Repository hinzufügen: `https://github.com/iron-exx/ExpenseChrage`
+1. Repository hinzufügen: `https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge`
 2. Addon „ExpenseCharge" installieren
 3. Konfiguration:
    ```yaml
@@ -217,4 +217,4 @@ Proprietär — alle Rechte vorbehalten. Siehe `LICENSE`.
 
 ## Support
 
-GitHub: [iron-exx/ExpenseChrage](https://github.com/iron-exx/ExpenseChrage)
+GitHub: [systemwerk-GmbH-Co-KG/ExpenseCharge](https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge)

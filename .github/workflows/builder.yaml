@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    if: github.repository == 'iron-exx/ExpenseChrage'
+    if: github.repository == 'systemwerk-GmbH-Co-KG/ExpenseCharge'
     name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
     permissions:
@@ -68,5 +68,5 @@ jobs:
             BUILD_VERSION=${{ steps.ver.outputs.version }}
             BUILD_ARCH=${{ matrix.arch }}
           tags: |
-            ghcr.io/iron-exx/${{ matrix.arch }}-addon-expensecharge:${{ steps.ver.outputs.version }}
-            ghcr.io/iron-exx/${{ matrix.arch }}-addon-expensecharge:latest
+            ghcr.io/systemwerk-gmbh-co-kg/${{ matrix.arch }}-addon-expensecharge:${{ steps.ver.outputs.version }}
+            ghcr.io/systemwerk-gmbh-co-kg/${{ matrix.arch }}-addon-expensecharge:latest

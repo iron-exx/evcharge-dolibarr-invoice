@@ -60,7 +60,7 @@ Die Authentifizierung läuft über ein **einzelnes gemeinsames Token** (Shared S
 ### 3.1 — Repository hinzufügen
 
 1. *Einstellungen → Add-ons → Add-on-Store → ⋮ → Repositories*.
-2. URL eintragen: `https://github.com/iron-exx/ExpenseChrage`.
+2. URL eintragen: `https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge`.
 3. „Hinzufügen" → Repository erscheint im Store.
 
 > Falls das alte Repository (`evcharge-dolibarr-invoice`) noch eingetragen ist: entfernen — dort werden keine Updates mehr veröffentlicht.

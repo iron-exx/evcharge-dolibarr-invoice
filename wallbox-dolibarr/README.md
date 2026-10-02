@@ -17,7 +17,7 @@ Erfasst RFID-basierte Ladevorgänge einer Wallbox und schreibt sie direkt in die
 
 ## Installation
 
-1. Repository hinzufügen: `https://github.com/iron-exx/ExpenseChrage`
+1. Repository hinzufügen: `https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge`
 2. Addon „ExpenseCharge" installieren
 3. Konfiguration anpassen (siehe unten)
 4. Addon starten
