@@ -1,5 +1,6 @@
 """OCPP-1.6J-Nachrichten-Handler je verbundener Wallbox."""
 import logging
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Sequence
@@ -10,7 +11,7 @@ from ocpp.v16.enums import Action, AuthorizationStatus, DataTransferStatus, Regi
 
 from ocpp_server.id_tags import is_whitelisted, normalize_id_tag
 from ocpp_server.meter import extract_energy_kwh, to_local_naive_iso, wh_to_kwh
-from ocpp_server.redact import install as _install_redaction
+from ocpp_server.redact import install as _install_redaction, redact_id_tags
 from ocpp_server.settings import ChargePointConfig
 from utils.hash import hash_rfid
 
@@ -29,6 +30,9 @@ _install_redaction(_PROTOCOL_LOGGER)
 # Abgelehnte Starts bekommen transactionId 0 — eine spätere StopTransaction
 # mit dieser ID wird bestätigt, aber nie abgerechnet.
 REJECTED_TRANSACTION_ID = 0
+
+LOG_SIZE = 200          # Nachrichten je Wallbox für die Verwaltungsoberfläche
+_LOG_TEXT_MAX = 4000
 
 # Optional nach dem Boot gesetzt (ocpp_apply_recommended_config: true).
 RECOMMENDED_CONFIGURATION = (
@@ -67,7 +71,24 @@ class CentralSystemChargePoint(ChargePoint):
         self._deps = deps
         self._state = deps.live.setdefault(cp_config.id, {'connectors': {}, 'last_rejected_id_tag': None})
         self._state.update({'connected': True, 'wallbox_id': cp_config.wallbox_id})
+        self._state.setdefault('log', deque(maxlen=LOG_SIZE))
         self._touch()
+
+    def _log(self, direction: str, raw) -> None:
+        """Nachricht fürs Oberflächen-Protokoll — idTag und AuthorizationKey nie im Klartext."""
+        text = redact_id_tags(str(raw))
+        if 'authorizationkey' in text.lower():
+            text = ','.join(text.split(',', 2)[:2]) + ', … (enthält AuthorizationKey – ausgeblendet)]'
+        self._state['log'].append({'time': _local_now_iso(), 'dir': direction,
+                                   'text': text[:_LOG_TEXT_MAX]})
+
+    async def route_message(self, raw_msg):
+        self._log('in', raw_msg)
+        await super().route_message(raw_msg)
+
+    async def _send(self, message):
+        self._log('out', message)
+        await super()._send(message)
 
     def _touch(self) -> None:
         self._state['last_seen'] = _local_now_iso()

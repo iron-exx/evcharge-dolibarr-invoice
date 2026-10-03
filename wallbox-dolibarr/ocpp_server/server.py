@@ -1,9 +1,11 @@
 """WebSocket-Server: nimmt Wallbox-Verbindungen an (Pfad-ID, Basic Auth, Subprotocol)."""
+import asyncio
 import base64
 import binascii
 import hmac
 import logging
 import os
+from datetime import datetime
 from http import HTTPStatus
 from typing import Optional, Tuple
 from urllib.parse import unquote, urlsplit
@@ -28,6 +30,8 @@ _install_redaction(_WS_LOGGER)
 OCPP_PORT = 9000              # Container-Port; Host-Port wird in HA unter "Netzwerk" gesetzt
 OCPP_SUBPROTOCOL = 'ocpp1.6'
 _MAX_LOGGED_CP_ID = 64
+_MAX_PENDING = 20             # unbekannte IDs, die die Oberfläche zum Übernehmen anbietet
+COMMAND_TIMEOUT = 20
 
 
 def charge_point_id_from_path(path: str) -> str:
@@ -77,15 +81,47 @@ class OcppServer:
         self._deps = deps
         self._server = None
         self.connected = {}   # cp_id → aktuelle Verbindung
+        self.charge_points = {}   # cp_id → CentralSystemChargePoint (für Fernbefehle)
+        self.pending = {}     # unbekannte cp_id → {first_seen, last_seen, count, remote}
+
+    @property
+    def live(self) -> dict:
+        return self._deps.live
 
     def update_settings(self, settings: OcppSettings) -> None:
         """Neue Wallbox-Liste ohne Neustart; bestehende Verbindungen bleiben."""
         self._settings = settings
+        for cp in settings.charge_points:
+            self.pending.pop(cp.id, None)
+
+    def _note_pending(self, cp_id: str, remote) -> None:
+        now = datetime.now().replace(microsecond=0).isoformat()
+        entry = self.pending.get(cp_id)
+        if entry is None:
+            if len(self.pending) >= _MAX_PENDING:
+                self.pending.pop(min(self.pending, key=lambda k: self.pending[k]['last_seen']))
+            entry = self.pending[cp_id] = {'first_seen': now, 'count': 0}
+        entry.update(last_seen=now, count=entry['count'] + 1,
+                     remote=str(remote[0]) if remote else '')
+
+    async def send(self, cp_id: str, payload, timeout: float = COMMAND_TIMEOUT):
+        """Fernbefehl an eine verbundene Wallbox. CallError → OCPPError, keine Antwort → TimeoutError."""
+        cp = self.charge_points.get(cp_id)
+        if cp is None:
+            raise LookupError('Wallbox ist nicht verbunden')
+        return await asyncio.wait_for(cp.call(payload, suppress=False), timeout)
+
+    async def disconnect(self, cp_id: str) -> None:
+        connection = self.connected.get(cp_id)
+        if connection is not None:
+            await connection.close()
 
     async def _process_request(self, connection, request):
         cp_id = charge_point_id_from_path(request.path)
         cp_cfg = self._settings.find(cp_id)
         if cp_cfg is None:
+            if cp_id:
+                self._note_pending(cp_id[:_MAX_LOGGED_CP_ID], connection.remote_address)
             _LOGGER.warning("Unbekannte Charge-Point-ID %s – in ocpp_charge_points eintragen (Verbindung abgewiesen)",
                             safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.NOT_FOUND, "Unknown charge point\n")
@@ -120,13 +156,16 @@ class OcppServer:
             await previous.close()
         self.connected[cp_id] = connection
         _LOGGER.info("Wallbox %s verbunden (%s)", safe_cp_id_for_log(cp_id), connection.remote_address)
+        cp = CentralSystemChargePoint(cp_cfg, connection, self._deps)
+        self.charge_points[cp_id] = cp
         try:
-            await CentralSystemChargePoint(cp_cfg, connection, self._deps).start()
+            await cp.start()
         except websockets.ConnectionClosed as exc:
             _LOGGER.info("Wallbox %s getrennt (%s)", safe_cp_id_for_log(cp_id), exc)
         finally:
             if self.connected.get(cp_id) is connection:
                 del self.connected[cp_id]
+                self.charge_points.pop(cp_id, None)
                 self._deps.live.get(cp_id, {})['connected'] = False
 
     async def start(self, host: str = '0.0.0.0', port: int = OCPP_PORT) -> int:

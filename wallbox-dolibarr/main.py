@@ -837,7 +837,7 @@ def build_admin_context():
     """Standalone: Anmeldung/Assistent. Übernimmt ein altes web_auth als Admin-Konto."""
     ctx = AdminContext(data_dir=data_dir(), config=current_config, session_manager=session_manager,
                        ocpp_port=app_settings.ocpp_port, reload_dolibarr=reload_dolibarr,
-                       reload_ocpp=reload_ocpp, restart=restart_process)
+                       reload_ocpp=reload_ocpp, restart=restart_process, ocpp=lambda: _ocpp_server)
     auth = current_config.get('web_auth') or {}
     if not ctx.accounts.exists() and auth.get('username') and auth.get('password'):
         ctx.accounts.create(str(auth['username']), str(auth['password']))

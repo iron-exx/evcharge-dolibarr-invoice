@@ -70,12 +70,15 @@ class AdminContext:
     reload_dolibarr: Callable = None   # (url, token) → None
     reload_ocpp: Callable = None       # () → bool (True = ohne Neustart übernommen)
     restart: Callable = None           # () → None, Prozess beendet sich, Docker startet neu
+    ocpp: Callable = None              # () → laufender OcppServer oder None
     accounts: AccountStore = None
     store: ConfigStore = None
     audit: AuditLog = None
     limiter: LoginLimiter = field(default_factory=LoginLimiter)
     reveal: dict = field(default_factory=dict)          # cp_id → Passwort, einmalig anzeigen
     restart_reasons: set = field(default_factory=set)
+    flash: dict = field(default_factory=dict)            # cp_id → Meldung für die nächste Detailseite
+    cp_config: dict = field(default_factory=dict)        # cp_id → zuletzt gelesene Wallbox-Konfiguration
 
     def __post_init__(self):
         self.accounts = self.accounts or AccountStore(self.data_dir)
@@ -164,7 +167,10 @@ def _decorate(page: str, request, ctx, has_account) -> str:
     else:
         acct = '<span class="acct"><a href="/login">Anmelden</a></span>'
     page = page.replace('<!--ec-account-->', acct)
-    extra = '<a href="/setup">Einrichtung</a><a href="/audit">Protokoll</a>' if user else ''
+    extra = ''.join(
+        f'<a href="{href}" class="{"active" if request.path.startswith(prefix) else ""}">{name}</a>'
+        for href, prefix, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/setup', '/setup', 'Einrichtung'),
+                                   ('/audit', '/audit', 'Protokoll'))) if user else ''
     return page.replace('<!--ec-nav-extra-->', extra)
 
 
@@ -532,3 +538,6 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
     r.add_get('/setup/5', step5)
     r.add_post('/restart', restart)
     r.add_get('/audit', audit_page)
+
+    from . import wallboxes   # hier, weil wallboxes die Hilfen dieses Moduls nutzt
+    wallboxes.register(app, ctx)
