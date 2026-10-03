@@ -52,6 +52,7 @@ from app_settings import resolve_app_settings
 import env_config
 from env_config import apply_env_overrides
 from admin import is_standalone
+from admin import logs as admin_logs
 from admin.web import AdminContext, new_setup_code
 from placeholders import find_placeholders
 from ocpp_server.central_system import CentralSystemDeps
@@ -69,6 +70,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 _LOGGER = logging.getLogger(__name__)
+if is_standalone():
+    admin_logs.install()   # System-Log der Oberfläche ab der ersten Zeile
 
 # RFID-Werte die als "keine Karte" interpretiert werden
 _RFID_NONE_VALUES = {'', 'no tag', 'no_tag', 'none', 'unknown', 'unavailable'}

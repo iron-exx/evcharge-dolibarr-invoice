@@ -550,6 +550,35 @@ nach dem Anmelden in den passenden Schritt.
 - Ist ein Wert zusätzlich als `EC_…`-Umgebungsvariable gesetzt, warnt die Oberfläche:
   die Variable hat Vorrang.
 
+### Verwaltung im Browser (Standalone)
+
+Nach dem Anmelden kommen zu Erfassen · Verlauf · Karten · System diese Seiten dazu:
+
+- **Wallboxen** — alle OCPP-Wallboxen mit Live-Zustand (alle 5 s aktualisiert);
+  anlegen, bearbeiten, löschen (trennt sofort), Passwort-Generator (Anzeige nur
+  einmal). **Wartende Wallboxen** listet abgewiesene unbekannte IDs zum Übernehmen.
+  Je Wallbox:
+  - **Fernbefehle** mit Rückfrage: Laden starten/beenden, Stecker entriegeln,
+    Verfügbarkeit, Neustart (sanft/hart), Nachricht anfordern, Cache leeren
+  - **Konfiguration der Wallbox** lesen und einzeln ändern; **Empfohlene
+    Einstellungen** mit Vorschau (setzt nur, was abweicht). `AuthorizationKey`
+    ist maskiert und dort nicht änderbar — das Passwort unter „Bearbeiten“ setzen
+  - **OCPP-Protokoll**: die letzten 200 Nachrichten, Karten-IDs ausgeblendet
+- **Karten** (auch im HA-Addon) — Karten von Hand eintragen, umbenennen,
+  geschäftlich/privat/gesperrt umordnen; Mitarbeiter aus Dolibarr als
+  Namensvorschlag; eine alte `rfid_whitelist` per Knopf übernehmen
+- **Ladevorgänge** — Filter nach Monat und Status, CSV-Export, Übertragungsstatus
+  mit letztem Lauf und **„Jetzt übertragen“**. Unvollständige Ladungen mit von Hand
+  ermittelter kWh abschließen oder verwerfen; übertragene bleiben unangetastet
+- **Einstellungen** — Betriebsparameter (Detailgrad wirkt sofort, der Rest nach
+  Neustart; Ports/Bind-Adressen bleiben in der `.env`), Admin-Passwort ändern,
+  **Backup** (ZIP mit Konfiguration, Datenbank, Konto, Protokoll — enthält Token und
+  Wallbox-Passwörter im Klartext) und **Wiederherstellen** (prüft das ZIP, sichert
+  vorher den jetzigen Stand als `backup-vor-wiederherstellung-….zip`, startet neu).
+  Beides verlangt das Admin-Passwort. Dazu **Systeminfo**
+- **Protokoll** — Änderungen (`data/audit.log`) und das **System-Log** der letzten
+  2000 Zeilen seit dem Start, filterbar und zum Herunterladen
+
 **Alter `web_auth`-Eintrag:** Ein vorhandenes `web_auth` (z.B. von `setup-standalone.sh`)
 wird beim Start als Admin-Konto übernommen und danach aus `options.json` entfernt — das
 Klartext-Passwort liegt dann nirgends mehr. Kein Einrichtungscode nötig.

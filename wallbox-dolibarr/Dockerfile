@@ -15,6 +15,9 @@ LABEL \
   io.hass.arch="${BUILD_ARCH}" \
   org.opencontainers.image.source="https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge"
 
+# Für die Systeminfo der Oberfläche
+ENV EXPENSECHARGE_VERSION="${BUILD_VERSION}"
+
 # Alle Abhängigkeiten über apk. 5-fach-Retry gegen transiente Aussetzer.
 #
 # HINWEIS: Wenn dieser Schritt mit "dl-cdn.alpinelinux.org DNS: transient

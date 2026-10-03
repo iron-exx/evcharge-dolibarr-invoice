@@ -1852,7 +1852,8 @@ def create_app(session_manager, config, api_state):
     # Standalone: Anmeldung, CSRF, Assistent (admin/). Im HA-Addon gibt es keinen
     # AdminContext — dort schützt der Ingress und die Oberfläche bleibt wie bisher.
     admin_ctx = (api_state or {}).get('admin')
-    app = web.Application(middlewares=[admin_web.middleware(admin_ctx)] if admin_ctx else [])
+    app = web.Application(middlewares=[admin_web.middleware(admin_ctx)] if admin_ctx else [],
+                          client_max_size=admin_web.MAX_UPLOAD if admin_ctx else 1024 ** 2)
     if admin_ctx:
         admin_ctx.render = _base
         admin_ctx.api_state = api_state

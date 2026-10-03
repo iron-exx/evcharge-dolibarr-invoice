@@ -75,6 +75,13 @@ class AccountStore:
         _write_private(self.path, json.dumps(
             {'username': username, 'password': hash_password(password), 'epoch': 0}))
 
+    def change_password(self, password: str) -> None:
+        """Neues Passwort; alle bestehenden Sitzungen werden ungültig."""
+        acc = self._load()
+        acc['password'] = hash_password(password)
+        acc['epoch'] = acc.get('epoch', 0) + 1
+        _write_private(self.path, json.dumps(acc))
+
     def check(self, username: str, password: str) -> bool:
         acc = self._load()
         if not acc:

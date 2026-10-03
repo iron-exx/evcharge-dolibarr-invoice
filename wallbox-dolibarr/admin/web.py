@@ -29,6 +29,8 @@ from .store import AuditLog, ConfigStore, mask
 SESSION_COOKIE = 'ec_session'
 CSRF_COOKIE = 'ec_csrf'
 _PUBLIC = ('/health', '/login')
+_MAX_FORM = 1024 * 1024
+MAX_UPLOAD = 256 * 1024 * 1024     # Wiederherstellung eines Backups
 _FORM_POST = re.compile(r'(<form\b[^>]*\bmethod=["\']?post["\']?[^>]*>)', re.IGNORECASE)
 
 _CSS = """
@@ -50,6 +52,8 @@ textarea{width:100%;min-height:110px;padding:10px 12px;background:var(--bg);bord
 .copy button{padding:0 12px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer}
 .hint{font-size:12px;color:var(--muted);margin:6px 0 4px;line-height:1.5}
 .audit td{font-size:12px;vertical-align:top}
+.tabs{display:flex;gap:6px;margin-bottom:12px}.tabs a{padding:6px 12px;border-radius:7px;border:1px solid var(--border);
+  text-decoration:none;color:var(--text);font-size:13px}.tabs a.on{background:var(--primary-d);color:#fff;border-color:var(--primary-d)}
 """
 
 _COPY_JS = """<script>
@@ -121,7 +125,14 @@ def middleware(ctx: AdminContext):
         if request.method == 'POST':
             sent = request.headers.get('X-CSRF-Token', '')
             if not sent and request.content_type == 'application/x-www-form-urlencoded':
+                # Vor der Anmeldeprüfung gelesen → klein halten (Uploads gehen als multipart)
+                if (request.content_length or 0) > _MAX_FORM:
+                    return _plain(413, 'Formular zu groß')
                 sent = (await request.post()).get('_csrf', '')
+            elif not sent and request.content_type == 'multipart/form-data':
+                # Datei-Upload: Token in der Formular-URL, damit der Körper erst nach
+                # der Anmeldeprüfung gelesen wird
+                sent = request.query.get('_csrf', '')
             if not (request.cookies.get(CSRF_COOKIE) and secrets.compare_digest(str(sent).encode(), csrf.encode())):
                 return _plain(403, 'Sicherheitsprüfung (CSRF) fehlgeschlagen – Seite neu laden und '
                                    'noch einmal absenden.')
@@ -170,10 +181,10 @@ def _decorate(page: str, request, ctx, has_account) -> str:
         acct = '<span class="acct"><a href="/login">Anmelden</a></span>'
     page = page.replace('<!--ec-account-->', acct)
     extra = ''.join(
-        f'<a href="{href}" class="{"active" if request.path.startswith(prefix) else ""}">{name}</a>'
-        for href, prefix, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/sessions', '/sessions', 'Ladevorgänge'),
-                                   ('/setup', '/setup', 'Einrichtung'),
-                                   ('/audit', '/audit', 'Protokoll'))) if user else ''
+        f'<a href="{href}" class="{"active" if request.path.startswith(prefixes) else ""}">{name}</a>'
+        for href, prefixes, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/sessions', '/sessions', 'Ladevorgänge'),
+                                     ('/settings', ('/settings', '/setup'), 'Einstellungen'),
+                                     ('/audit', ('/audit', '/logs'), 'Protokoll'))) if user else ''
     return page.replace('<!--ec-nav-extra-->', extra)
 
 
@@ -524,7 +535,8 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
         body = (f'<div class="tbl-wrap"><table class="audit"><tr><th>Zeit</th><th>Benutzer</th><th>Feld</th>'
                 f'<th>alt → neu</th></tr>{rows}</table></div>' if rows else
                 '<p class="empty">Noch keine Änderungen.</p>')
-        return _page(ctx, request, 'Änderungsprotokoll', body, active='audit')
+        tabs = '<div class="tabs"><a class="on" href="/audit">Änderungen</a><a href="/logs">System-Log</a></div>'
+        return _page(ctx, request, 'Protokoll', tabs + body, active='audit')
 
     r.add_get('/login', login_page)
     r.add_post('/login', login)
@@ -542,6 +554,7 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
     r.add_post('/restart', restart)
     r.add_get('/audit', audit_page)
 
-    from . import sessions, wallboxes   # hier, weil beide die Hilfen dieses Moduls nutzen
+    from . import sessions, system, wallboxes   # hier, weil sie die Hilfen dieses Moduls nutzen
     wallboxes.register(app, ctx)
     sessions.register(app, ctx)
+    system.register(app, ctx)
