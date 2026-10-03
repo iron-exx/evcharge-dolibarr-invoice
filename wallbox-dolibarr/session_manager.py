@@ -685,6 +685,78 @@ class SessionManager:
         return result
 
     # ------------------------------------------------------------------
+    # Nachbearbeitung aus der Verwaltungsoberfläche
+    # ------------------------------------------------------------------
+
+    def list_sessions(self, month: Optional[str] = None, status: Optional[str] = None,
+                      limit: int = 1000) -> list:
+        """Sessions, neueste zuerst. month 'YYYY-MM'; status wie in der DB oder
+        'pending' (abgeschlossen, noch nicht übertragen) / 'transmitted'."""
+        where, args = [], []
+        if month:
+            where.append("strftime('%Y-%m', start_time) = ?")
+            args.append(month)
+        if status == 'pending':
+            where.append("status = 'completed' AND transmitted_at IS NULL")
+        elif status == 'transmitted':
+            where.append("status = 'completed' AND transmitted_at IS NOT NULL")
+        elif status:
+            where.append("status = ?")
+            args.append(status)
+        sql = ("SELECT * FROM sessions" + (" WHERE " + " AND ".join(where) if where else "") +
+               " ORDER BY start_time DESC, id DESC LIMIT ?")
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in conn.execute(sql, (*args, limit)).fetchall()]
+        finally:
+            conn.close()
+
+    def session_counts(self) -> Dict[str, int]:
+        """Anzahl je Status, dazu 'pending' (abgeschlossen, noch nicht übertragen)."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            counts = dict(conn.execute("SELECT status, COUNT(*) FROM sessions GROUP BY status").fetchall())
+            counts['pending'] = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE status = 'completed' AND transmitted_at IS NULL"
+            ).fetchone()[0]
+            return counts
+        finally:
+            conn.close()
+
+    def resolve_incomplete_session(self, session_id: int, total_kwh: float) -> bool:
+        """Unvollständige Session mit von Hand ermittelter Energiemenge abschließen —
+        danach wird sie wie jede andere übertragen."""
+        if not 0 < total_kwh < 1000:
+            raise ValueError("kWh: mehr als 0 und unter 1000")
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute('''
+                UPDATE sessions SET total_kwh = ?, status = 'completed',
+                       end_time = COALESCE(end_time, start_time),
+                       stop_reason = TRIM(COALESCE(stop_reason, '') || ' manuell_korrigiert')
+                WHERE id = ? AND status = 'incomplete' AND transmitted_at IS NULL
+            ''', (round(total_kwh, 3), session_id))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def discard_session(self, session_id: int) -> bool:
+        """Noch nicht übertragene Session verwerfen — sie erreicht Dolibarr nie."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute('''
+                UPDATE sessions SET status = 'discarded',
+                       stop_reason = TRIM(COALESCE(stop_reason, '') || ' manuell_verworfen')
+                WHERE id = ? AND status IN ('incomplete', 'completed') AND transmitted_at IS NULL
+            ''', (session_id,))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
     # OCPP-Transaktionen (session_source: ocpp)
     #
     # Unterschiede zum HA-Sensor-Pfad:

@@ -362,6 +362,15 @@ _ICO_BOLT_WHITE = (
 # HTML scaffolding
 # ---------------------------------------------------------------------------
 
+def note_transmit_result(api_state, result) -> None:
+    """Letzten Übertragungslauf für die Oberfläche merken."""
+    if api_state is not None:
+        api_state['last_transmit'] = {
+            'time': datetime.now().isoformat(timespec='seconds'),
+            'transmitted': result.get('transmitted', 0), 'failed': result.get('failed', 0),
+            'error': (result.get('errors') or [''])[0]}
+
+
 def _base(active, content, base_href=''):
     base_tag = f'  <base href="{base_href}/">\n' if base_href else ''
     nav_form = (
@@ -1561,7 +1570,10 @@ def create_app(session_manager, config, api_state):
             msg_html = '<div class="msg err">Dolibarr API nicht erreichbar — bitte URL und Token prüfen.</div>'
         else:
             try:
-                result = session_manager.transmit_completed_sessions(client)
+                # im Thread: synchrones requests mit Retry darf den Event-Loop (und
+                # damit die OCPP-Verbindung der Wallbox) nicht anhalten
+                result = await asyncio.to_thread(session_manager.transmit_completed_sessions, client)
+                note_transmit_result(api_state, result)
                 sent   = result.get('transmitted', 0)
                 failed = result.get('failed', 0)
                 if sent == 0 and failed == 0:
@@ -1843,6 +1855,7 @@ def create_app(session_manager, config, api_state):
     app = web.Application(middlewares=[admin_web.middleware(admin_ctx)] if admin_ctx else [])
     if admin_ctx:
         admin_ctx.render = _base
+        admin_ctx.api_state = api_state
         admin_web.register(app, admin_ctx)
     app.router.add_get('/health',    handle_health)
     app.router.add_get('/',          handle_get)

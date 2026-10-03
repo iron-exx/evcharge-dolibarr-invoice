@@ -71,6 +71,8 @@ class AdminContext:
     reload_ocpp: Callable = None       # () → bool (True = ohne Neustart übernommen)
     restart: Callable = None           # () → None, Prozess beendet sich, Docker startet neu
     ocpp: Callable = None              # () → laufender OcppServer oder None
+    transmit_now: Callable = None      # () → None, stößt die Übertragung an Dolibarr an
+    api_state: dict = None             # gemeinsamer Live-Zustand (setzt create_app)
     accounts: AccountStore = None
     store: ConfigStore = None
     audit: AuditLog = None
@@ -169,7 +171,8 @@ def _decorate(page: str, request, ctx, has_account) -> str:
     page = page.replace('<!--ec-account-->', acct)
     extra = ''.join(
         f'<a href="{href}" class="{"active" if request.path.startswith(prefix) else ""}">{name}</a>'
-        for href, prefix, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/setup', '/setup', 'Einrichtung'),
+        for href, prefix, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/sessions', '/sessions', 'Ladevorgänge'),
+                                   ('/setup', '/setup', 'Einrichtung'),
                                    ('/audit', '/audit', 'Protokoll'))) if user else ''
     return page.replace('<!--ec-nav-extra-->', extra)
 
@@ -539,5 +542,6 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
     r.add_post('/restart', restart)
     r.add_get('/audit', audit_page)
 
-    from . import wallboxes   # hier, weil wallboxes die Hilfen dieses Moduls nutzt
+    from . import sessions, wallboxes   # hier, weil beide die Hilfen dieses Moduls nutzen
     wallboxes.register(app, ctx)
+    sessions.register(app, ctx)

@@ -45,7 +45,7 @@ import wallbox_profile
 from api_client import WallboxApiClient
 
 # Ingress Web-Server für manuelle Sessions
-from web_server import start_web_server
+from web_server import note_transmit_result, start_web_server
 from tag_release import TagReleaser
 from tag_learning import LearnBuffer
 from app_settings import resolve_app_settings
@@ -816,6 +816,12 @@ def reload_dolibarr(url: str, token: str) -> None:
     _LOGGER.info("Dolibarr-Zugang aus der Oberfläche übernommen: %s", url)
 
 
+def request_transmission() -> None:
+    """Sofortige Übertragung aus der Oberfläche (läuft im Übertragungs-Task)."""
+    ensure_transmission()
+    _transmit_requested.set()
+
+
 def reload_ocpp() -> bool:
     """Neue ocpp_charge_points ohne Neustart — nur, wenn der OCPP-Server schon läuft."""
     if _ocpp_server is None:
@@ -837,7 +843,8 @@ def build_admin_context():
     """Standalone: Anmeldung/Assistent. Übernimmt ein altes web_auth als Admin-Konto."""
     ctx = AdminContext(data_dir=data_dir(), config=current_config, session_manager=session_manager,
                        ocpp_port=app_settings.ocpp_port, reload_dolibarr=reload_dolibarr,
-                       reload_ocpp=reload_ocpp, restart=restart_process, ocpp=lambda: _ocpp_server)
+                       reload_ocpp=reload_ocpp, restart=restart_process, ocpp=lambda: _ocpp_server,
+                       transmit_now=request_transmission)
     auth = current_config.get('web_auth') or {}
     if not ctx.accounts.exists() and auth.get('username') and auth.get('password'):
         ctx.accounts.create(str(auth['username']), str(auth['password']))
@@ -864,6 +871,7 @@ async def periodic_transmission():
         if api_client:
             now = time.time()
             if (now - last_transmit) >= transmit_interval or _transmit_requested.is_set():
+                _manual = _transmit_requested.is_set()
                 _transmit_requested.clear()
                 last_transmit = now
                 try:
@@ -874,6 +882,8 @@ async def periodic_transmission():
                     # stehenbleiben, sonst läuft die Wallbox in ihren Timeout.
                     result = await asyncio.to_thread(
                         session_manager.transmit_completed_sessions, api_client)
+                    if result["transmitted"] or result["failed"] or _manual:
+                        note_transmit_result(api_state, result)
                     if result["transmitted"] > 0:
                         _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
                         if api_state is not None and not api_state.get('client'):
