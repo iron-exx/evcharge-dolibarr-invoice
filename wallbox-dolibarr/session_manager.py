@@ -970,6 +970,19 @@ class SessionManager:
         finally:
             conn.close()
 
+    def update_tag_by_hash(self, rfid_hash: str, label: Optional[str], mode: str) -> bool:
+        """Name und Einordnung einer eingetragenen Karte ändern (ohne Klartext). True, wenn es sie gab."""
+        if mode not in VALID_TAG_MODES:
+            raise ValueError(f"mode muss {VALID_TAG_MODES} sein, war {mode!r}")
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute("UPDATE tags SET label = ?, mode = ? WHERE rfid_hash = ?",
+                               ((label or '').strip() or None, mode, rfid_hash))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
     def is_tag_billable(self, rfid_hash: str) -> bool:
         """Darf eine Ladung mit diesem Hash abgerechnet werden?
 

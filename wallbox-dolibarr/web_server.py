@@ -9,6 +9,7 @@ Seiten:
   GET  /history       Monatliche Verlaufsansicht
   GET  /export        CSV-Export für einen Monat
 """
+import asyncio
 import csv
 import io
 import logging
@@ -20,7 +21,9 @@ from datetime import datetime, timedelta
 
 from aiohttp import web
 
+from admin import validate
 from admin import web as admin_web
+from ocpp_server.id_tags import normalize_id_tag
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -840,7 +843,8 @@ def _learn_out(api_state):
     return {'enabled': bool(learn.enabled), 'detected': learn.detected()}
 
 
-def _build_tags_page(session_manager, config, api_state=None, base_href='', message_html=''):
+def _build_tags_page(session_manager, config, api_state=None, base_href='', message_html='',
+                     employees=None, extra_html=''):
     learn = _learn_out(api_state)
     tags = _tags_out(session_manager)
 
@@ -881,31 +885,70 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
             detected_html = ('<div style="color:var(--dim);font-size:13px;padding:8px 0">'
                              'Noch keine Karte erkannt — jetzt eine an die Wallbox halten.</div>')
 
+    def mode_select(selected):
+        return ('<select name="mode">' + ''.join(
+            f'<option value="{m}"{" selected" if m == selected else ""}>{html.escape(_TAG_MODE_LABELS[m][0])}</option>'
+            for m in ('business', 'private', 'unknown')) + '</select>')
+
     if tags:
         rows = []
         for t in tags:
-            name = html.escape(t['label'] or '(ohne Namen)')
+            prefix = html.escape(t['hash_prefix'])
             rows.append(
                 '<div class="tag-row">'
-                f'<div style="flex:1"><strong>{name}</strong>'
-                f'<div style="color:var(--dim);font-size:11px">'
-                f'Hash {html.escape(t["hash_prefix"])}… · {t["seen_count"]}x gesehen · '
-                f'zuletzt {html.escape(t["last_seen"] or "—")}</div></div>'
+                '<form method="POST" action="tags/update" class="tag-edit">'
+                f'<input type="hidden" name="hash_prefix" value="{prefix}">'
+                f'<input name="label" value="{html.escape(t["label"] or "")}" placeholder="(ohne Namen)" '
+                'list="ec-employees" maxlength="60">'
+                f'{mode_select(t["mode"])}'
+                '<button type="submit" class="btn-dl">Speichern</button></form>'
                 f'<span style="background:{t["mode_color"]};color:var(--accent-i);padding:2px 8px;'
                 f'border-radius:3px;font-size:11px;font-weight:700">'
                 f'{html.escape(t["mode_label"])}</span>'
-                f'<span style="color:var(--dim);font-size:11px">{html.escape(t["mode_hint"])}</span>'
                 '<form method="POST" action="tags/delete" style="display:inline">'
-                f'<input type="hidden" name="hash_prefix" value="{html.escape(t["hash_prefix"])}">'
+                f'<input type="hidden" name="hash_prefix" value="{prefix}">'
                 '<button type="submit" class="btn-dl" '
                 'onclick="return confirm(\'Karte wirklich entfernen? Sie kann danach nur noch '
                 'laden, wenn sie in der Konfigurations-Whitelist steht.\')">Entfernen</button>'
                 '</form>'
+                f'<div style="color:var(--dim);font-size:11px;width:100%">'
+                f'Hash {prefix}… · {t["seen_count"]}x gesehen · '
+                f'zuletzt {html.escape(t["last_seen"] or "—")} · {html.escape(t["mode_hint"])}</div>'
                 '</div>')
         tags_html = ''.join(rows)
     else:
         tags_html = ('<div style="color:var(--dim);font-size:13px;padding:8px 0">'
                      'Noch keine Karten eingetragen.</div>')
+
+    add_html = (
+        '<form method="POST" action="tags" class="tag-row tag-edit">'
+        '<input type="hidden" name="manual" value="1">'
+        '<input name="tag" placeholder="Karten-ID, z.B. EFCD083E" required autocomplete="off" '
+        'maxlength="20" style="max-width:200px">'
+        '<input name="label" placeholder="Name, z.B. Firmenwagen 1" list="ec-employees" maxlength="60">'
+        f'{mode_select("business")}'
+        '<button type="submit" class="btn-dl">Hinzufügen</button></form>')
+
+    datalist = ''.join(f'<option value="{html.escape(e.get("name") or e.get("login") or "")}">'
+                       f'{html.escape(e.get("login") or "")}</option>' for e in (employees or []))
+    if employees is None:
+        employees_html = ''
+    elif employees:
+        employees_html = (
+            '<div class="card"><div class="card-title">' + _ICO_CARD + ' Mitarbeiter in Dolibarr</div>'
+            '<div style="color:var(--muted);font-size:13px;margin-bottom:10px">Mitarbeiter mit '
+            'zugeordneter Karte (Dolibarr → Wallbox-Billing → RFID). <strong>Wem</strong> eine Ladung '
+            'gehört, entscheidet Dolibarr; hier wird nur festgelegt, <strong>ob</strong> sie übertragen '
+            'wird. Die Namen stehen beim Benennen als Vorschlag bereit.</div>' +
+            ''.join(f'<div class="tag-row"><strong>{html.escape(e.get("name") or e.get("login") or "")}</strong>'
+                    f'<span style="color:var(--dim);font-size:11px">{html.escape(e.get("login") or "")}</span></div>'
+                    for e in employees) + '</div>')
+    else:
+        employees_html = (
+            '<div class="card"><div class="card-title">' + _ICO_CARD + ' Mitarbeiter in Dolibarr</div>'
+            '<div style="color:var(--dim);font-size:13px">Keine Mitarbeiter mit Karte gefunden – oder '
+            'Dolibarr gerade nicht erreichbar. Karten werden in Dolibarr unter Wallbox-Billing → RFID '
+            'einem Mitarbeiter zugeordnet.</div></div>')
 
     content = f"""{message_html}
 <div class="card">
@@ -927,12 +970,21 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
     Nicht eingeordnete Karten können nicht laden.
   </div>
   {tags_html}
+  <div class="card-title" style="margin-top:14px">Karte von Hand eintragen</div>
+  {add_html}
 </div>
+{extra_html}
+{employees_html}
+<datalist id="ec-employees">{datalist}</datalist>
 <style>
 .tag-row {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap;
             padding:10px 0; border-bottom:1px solid var(--border); }}
 .tag-row:last-child {{ border-bottom:none; }}
 .tag-row input[name=label] {{ flex:1; min-width:160px; }}
+.tag-edit {{ display:flex; gap:8px; flex:1; flex-wrap:wrap; align-items:center; min-width:240px; }}
+.tag-edit select {{ width:auto; }}
+.btn {{ padding:9px 16px; border:none; border-radius:8px; background:var(--primary-d); color:#fff;
+        font-size:14px; font-weight:600; cursor:pointer; }}
 </style>"""
     return _base('tags', content, base_href=base_href)
 
@@ -1642,12 +1694,43 @@ def create_app(session_manager, config, api_state):
             'diagnostics': _diagnostics(session_manager, config, api_state),
         })
 
-    async def handle_tags_page(request):
-        base_href = request.headers.get('X-Ingress-Path', '')
+    def _audit(request, field, new, note=''):
+        admin_ctx = (api_state or {}).get('admin')
+        if admin_ctx:
+            admin_ctx.audit.record(request.get('user'), field, None, new, note)
+
+    async def _employees():
+        """Dolibarr-Mitarbeiter für Namensvorschläge; None ohne Dolibarr-Zugang."""
+        client = (api_state or {}).get('client')
+        if not client:
+            return None
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(client.list_employees), 5)
+        except Exception:
+            return []
+
+    def _whitelist_html():
+        admin_ctx = (api_state or {}).get('admin')
+        entries = [str(x) for x in (config.get('rfid_whitelist') or []) if str(x).strip()]
+        if not admin_ctx or not entries:
+            return ''
+        return ('<div class="card"><div class="card-title">' + _ICO_CARD + ' Alte Whitelist</div>'
+                f'<div style="color:var(--muted);font-size:13px;margin-bottom:10px">In der Konfiguration '
+                f'stehen noch {len(entries)} Karte(n) unter <code>rfid_whitelist</code>. Sie laden und werden '
+                'abgerechnet, tauchen hier aber nicht auf. Übernehmen trägt sie als geschäftlich ein und '
+                'leert die Liste.</div><form method="POST" action="tags/import-whitelist">'
+                '<button type="submit" class="btn">In die Kartenverwaltung übernehmen</button></form></div>')
+
+    async def _tags_response(request, message_html=''):
         return web.Response(
             content_type='text/html', charset='utf-8',
             text=_build_tags_page(session_manager, config, api_state=api_state,
-                                  base_href=base_href))
+                                  base_href=request.headers.get('X-Ingress-Path', ''),
+                                  message_html=message_html, employees=await _employees(),
+                                  extra_html=_whitelist_html()))
+
+    async def handle_tags_page(request):
+        return await _tags_response(request)
 
     async def handle_tags_json(request):
         return web.json_response({
@@ -1674,14 +1757,59 @@ def create_app(session_manager, config, api_state):
         label = str(data.get('label') or '').strip()
         if not tag:
             return web.json_response({'error': 'Karten-ID fehlt'}, status=400)
+        if data.get('manual'):
+            # Von Hand getippt: so prüfen und schreiben, wie die Wallbox die ID meldet
+            try:
+                tag = validate.rfid(tag)
+                label = validate.label(label)
+            except ValueError as exc:
+                return await _tags_response(request, f'<div class="msg err">{html.escape(str(exc))}</div>')
         try:
             saved = session_manager.upsert_tag(tag, label=label, mode=mode)
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=400)
+        _audit(request, 'karte', f'{saved["rfid_hash"][:16]}… {label}'.strip(), f'eingetragen als {mode}')
         if _wants_json(request):
             return web.json_response({'ok': True, 'mode': saved['mode'],
                                       'label': saved['label']})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+
+    def _tag_by_prefix(prefix):
+        if len(prefix) < 8:
+            return None
+        return next((t for t in session_manager.list_tags()
+                     if (t['rfid_hash'] or '').startswith(prefix)), None)
+
+    async def handle_tags_update(request):
+        data = await _body(request)
+        tag = _tag_by_prefix(str(data.get('hash_prefix') or '').strip())
+        label = str(data.get('label') or '').strip()
+        mode = str(data.get('mode') or '').strip()
+        if tag is None:
+            return web.json_response({'error': 'Karte nicht gefunden'}, status=404)
+        if len(label) > 60 or not label.isprintable():
+            return await _tags_response(request, '<div class="msg err">Name: höchstens 60 druckbare Zeichen</div>')
+        try:
+            session_manager.update_tag_by_hash(tag['rfid_hash'], label, mode)
+        except ValueError as exc:
+            return web.json_response({'error': str(exc)}, status=400)
+        _audit(request, 'karte', f'{tag["rfid_hash"][:16]}… {label}'.strip(), f'{tag["mode"]} → {mode}')
+        if _wants_json(request):
+            return web.json_response({'ok': True})
+        raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+
+    async def handle_whitelist_import(request):
+        admin_ctx = api_state['admin']
+        entries = [str(x).strip() for x in (config.get('rfid_whitelist') or []) if str(x).strip()]
+        for entry in entries:
+            tag = normalize_id_tag(entry)
+            if not session_manager.get_tag(tag):
+                session_manager.upsert_tag(tag, label=None, mode='business')
+        diff = admin_ctx.store.update({'rfid_whitelist': []}, config)
+        admin_ctx.audit.record_diff(request.get('user'), [(f, f'{len(entries)} Karte(n)', n) for f, _, n in diff],
+                                    'in die Kartenverwaltung übernommen')
+        return await _tags_response(request, f'<div class="msg ok">{len(entries)} Karte(n) übernommen – '
+                                             'jetzt unten benennen.</div>')
 
     async def handle_tags_delete(request):
         data = await _body(request)
@@ -1701,6 +1829,7 @@ def create_app(session_manager, config, api_state):
             if _wants_json(request):
                 return web.json_response({'error': 'Karte nicht gefunden'}, status=404)
             raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
+        _audit(request, 'karte', None, 'entfernt')
         if _wants_json(request):
             return web.json_response({'ok': True})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
@@ -1729,6 +1858,9 @@ def create_app(session_manager, config, api_state):
     app.router.add_post('/learn',       handle_learn)
     app.router.add_post('/tags',        handle_tags_save)
     app.router.add_post('/tags/delete', handle_tags_delete)
+    app.router.add_post('/tags/update', handle_tags_update)
+    if admin_ctx:
+        app.router.add_post('/tags/import-whitelist', handle_whitelist_import)
     return app
 
 
