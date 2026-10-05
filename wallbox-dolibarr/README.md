@@ -434,9 +434,8 @@ oder in einem Debian-LXC. Beide Wege bleiben verfügbar: **als HA-Addon** wie bi
 | **`systemwerk-GmbH-Co-KG/ExpenseCharge`** | **Quelle für Deployments** — hier wird entwickelt |
 | `iron-exx/evcharge-dolibarr-invoice` | Spiegel desselben Branches, gleicher Stand |
 
-Der Standalone-Betrieb liegt derzeit im Branch **`feat/ocpp-central-system`**
-(noch nicht in `main`) — darum `-b` beim Klonen nicht vergessen. Beim Spiegel ist
-`main` ein älteres, anderes Projekt.
+Geklont wird `main`. Beim Spiegel `iron-exx` ist `main` ein älteres, anderes Projekt —
+dort den Branch `feat/ocpp-central-system` nehmen.
 
 Beide Repositories sind **öffentlich**: `git clone` und `git pull` über HTTPS brauchen
 weder Token noch Deploy Key.
@@ -458,7 +457,7 @@ typischen Fehlerbildern: [INSTALL.md → 3.5](../INSTALL.md#35--variante-standal
 Kurzfassung — entweder ohne Skript (Einrichtung dann komplett im Browser):
 
 ```bash
-git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 mkdir -p data && cp options.standalone.example.json data/options.json
 echo "WEB_BIND=0.0.0.0" > .env
@@ -469,7 +468,7 @@ docker compose logs expensecharge | grep Einrichtungscode   # dann http://<IP>:8
 oder mit dem Skript, das im Terminal abfragt:
 
 ```bash
-git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 
 ./setup-standalone.sh                        # fragt alles ab, schreibt data/options.json + .env

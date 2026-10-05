@@ -133,7 +133,7 @@ Beide Varianten brauchen zuerst das **Dolibarr-Modul**.
 ### 2b · Standalone mit Docker
 
 ```bash
-git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 mkdir -p data && cp options.standalone.example.json data/options.json
 echo "WEB_BIND=0.0.0.0" > .env
@@ -144,9 +144,6 @@ docker compose logs expensecharge | grep Einrichtungscode
 Dann `http://<Server-IP>:8099/` öffnen — der Assistent führt durch den Rest.
 Schritt für Schritt mit Proxmox-Container, Sicherung und Update:
 **[INSTALL.md → Standalone](INSTALL.md#35--variante-standalone-docker-ohne-home-assistant-zb-proxmox-lxc)**
-
-> Die Funktionen ab Version 2.0.0 (OCPP, Alfen-API, Verwaltung im Browser) liegen derzeit im
-> Branch `feat/ocpp-central-system`.
 
 ### 3 · Wallbox anbinden
 

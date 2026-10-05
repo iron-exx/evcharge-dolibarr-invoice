@@ -146,8 +146,9 @@ Wer kein Home Assistant hat oder will, überspringt Schritt 3 komplett und fähr
 ExpenseCharge als einfachen Container. Eingerichtet und verwaltet wird dann alles
 **im Browser** (Admin-Konto, Dolibarr, Wallboxen, Karten, Ladevorgänge, Backup).
 
-Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `feat/ocpp-central-system`
-(öffentlich — kein Token, kein Deploy Key nötig).
+Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `main` (öffentlich — kein
+Token, kein Deploy Key nötig). Wer früher mit `-b feat/ocpp-central-system` geklont hat,
+kann dabei bleiben oder mit `git checkout main` wechseln.
 
 ### 3.5.1 — Proxmox-Container anlegen
 
@@ -176,7 +177,7 @@ curl -fsSL https://get.docker.com | sh            # Docker inkl. "docker compose
 docker compose version
 
 cd /opt
-git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr
 ```
 
@@ -268,7 +269,7 @@ docker compose up -d --build --force-recreate
 
 `data/` und `.env` bleiben unberührt — **nichts vorher löschen**. `docker compose restart`
 reicht nach einem Update nicht (läuft mit dem alten Image weiter). Wer den Code-Stand
-sauber zurücksetzen will: `git fetch && git reset --hard origin/feat/ocpp-central-system`
+sauber zurücksetzen will: `git fetch && git reset --hard origin/main`
 (betrifft nur versionierte Dateien, nie `data/` und `.env`).
 
 ### 3.5.7 — Firewall
