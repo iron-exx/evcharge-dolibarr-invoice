@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 # Hash-Utility importieren
 import sys
 sys.path.insert(0, '/usr/local/bin')
+from api_client import is_permanent_error
 from utils.hash import hash_rfid, verify_rfid_hash
 
 # Debounce-Zeit in Sekunden (HA-07)
@@ -34,6 +35,8 @@ _MAX_DISCARD_HOURS = 0.25
 #   business — Ladung wird an Dolibarr übertragen (Regelfall)
 #   private  — Ladung bleibt LOKAL, erreicht Dolibarr nie
 #   unknown  — nur erkannt, noch nicht eingeordnet: darf NICHT laden
+REJECTED_RETRY_HOURS = 1   # abgelehnte Ladung höchstens so oft erneut senden
+
 TAG_MODE_BUSINESS = 'business'
 TAG_MODE_PRIVATE = 'private'
 TAG_MODE_UNKNOWN = 'unknown'
@@ -125,6 +128,9 @@ class SessionManager:
             ('ALTER TABLE sessions ADD COLUMN ocpp_start_timestamp TEXT', 'ocpp_start_timestamp'),
             ('ALTER TABLE sessions ADD COLUMN last_meter_kwh REAL', 'last_meter_kwh'),
             ('ALTER TABLE sessions ADD COLUMN stop_reason TEXT', 'stop_reason'),
+            # Von Dolibarr dauerhaft abgelehnt (z.B. Karte keinem Mitarbeiter zugeordnet)
+            ('ALTER TABLE sessions ADD COLUMN transmit_error TEXT', 'transmit_error'),
+            ('ALTER TABLE sessions ADD COLUMN transmit_error_at TEXT', 'transmit_error_at'),
         ]:
             try:
                 cursor.execute(col_ddl)
@@ -613,19 +619,25 @@ class SessionManager:
         cursor = conn.cursor()
 
         # Sessions finden: abgeschlossen (NICHT discarded/incomplete) und noch nicht übertragen
+        # Abgelehnte erst nach REJECTED_RETRY_HOURS erneut — sonst stünde jede
+        # Minute dieselbe Fehlermeldung im Log und in Dolibarrs Syslog.
+        retry_before = (datetime.now() - timedelta(hours=REJECTED_RETRY_HOURS)).isoformat()
         cursor.execute('''
             SELECT id, rfid_hash, wallbox_id, start_time, end_time, total_kwh, login
             FROM sessions
             WHERE status = 'completed'
               AND end_time IS NOT NULL
               AND transmitted_at IS NULL
-        ''')
+              AND (transmit_error_at IS NULL OR transmit_error_at < ?)
+            ORDER BY id
+        ''', (retry_before,))
 
         rows = cursor.fetchall()
 
         result = {
             "transmitted": 0,
             "failed": 0,
+            "rejected": 0,
             "private": 0,
             "errors": []
         }
@@ -663,17 +675,28 @@ class SessionManager:
             if success:
                 # transmitted_at setzen
                 cursor.execute('''
-                    UPDATE sessions SET transmitted_at = ? WHERE id = ?
+                    UPDATE sessions SET transmitted_at = ?, transmit_error = NULL, transmit_error_at = NULL
+                    WHERE id = ?
                 ''', (datetime.now().isoformat(), session_id))
                 result["transmitted"] += 1
                 self._logger.info("Session %s erfolgreich übertragen", session_id)
+            elif is_permanent_error(error):
+                # Liegt an DIESER Ladung (z.B. Karte in Dolibarr keinem Mitarbeiter
+                # zugeordnet): zurückstellen und die übrigen weiter senden. Früher
+                # hielt eine solche Ladung jede weitere dauerhaft auf.
+                cursor.execute('''
+                    UPDATE sessions SET transmit_error = ?, transmit_error_at = ? WHERE id = ?
+                ''', (str(error)[:500], datetime.now().isoformat(), session_id))
+                result["errors"].append(f"Session {session_id}: {error}")
+                result["rejected"] += 1
+                self._logger.warning("Session %s von Dolibarr abgelehnt — zurückgestellt: %s", session_id, error)
             else:
                 error_msg = f"Session {session_id}: {error}"
                 result["errors"].append(error_msg)
                 result["failed"] += 1
                 self._logger.error("Fehler bei Session %s: %s", session_id, error)
 
-                # Bei Fehler: Schleife abbrechen (keine weiteren Transmissions)
+                # Trifft jede Ladung gleich (Token, Netz, Dolibarr down) → abbrechen
                 break
 
         conn.commit()
@@ -697,7 +720,9 @@ class SessionManager:
             where.append("strftime('%Y-%m', start_time) = ?")
             args.append(month)
         if status == 'pending':
-            where.append("status = 'completed' AND transmitted_at IS NULL")
+            where.append("status = 'completed' AND transmitted_at IS NULL AND transmit_error IS NULL")
+        elif status == 'rejected':
+            where.append("status = 'completed' AND transmitted_at IS NULL AND transmit_error IS NOT NULL")
         elif status == 'transmitted':
             where.append("status = 'completed' AND transmitted_at IS NOT NULL")
         elif status:
@@ -717,9 +742,10 @@ class SessionManager:
         conn = sqlite3.connect(self.db_path)
         try:
             counts = dict(conn.execute("SELECT status, COUNT(*) FROM sessions GROUP BY status").fetchall())
-            counts['pending'] = conn.execute(
-                "SELECT COUNT(*) FROM sessions WHERE status = 'completed' AND transmitted_at IS NULL"
-            ).fetchone()[0]
+            counts['pending'], counts['rejected'] = conn.execute(
+                "SELECT COUNT(*) - COUNT(transmit_error), COUNT(transmit_error) FROM sessions "
+                "WHERE status = 'completed' AND transmitted_at IS NULL"
+            ).fetchone()
             return counts
         finally:
             conn.close()
@@ -737,6 +763,20 @@ class SessionManager:
                        stop_reason = TRIM(COALESCE(stop_reason, '') || ' manuell_korrigiert')
                 WHERE id = ? AND status = 'incomplete' AND transmitted_at IS NULL
             ''', (round(total_kwh, 3), session_id))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def retry_rejected_session(self, session_id: int) -> bool:
+        """Abgelehnte Ladung beim nächsten Lauf erneut senden (nachdem z.B. die Karte
+        in Dolibarr zugeordnet wurde)."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cur = conn.execute('''
+                UPDATE sessions SET transmit_error_at = NULL
+                WHERE id = ? AND transmit_error IS NOT NULL AND transmitted_at IS NULL
+            ''', (session_id,))
             conn.commit()
             return cur.rowcount > 0
         finally:
@@ -1063,6 +1103,20 @@ class SessionManager:
         """
         tag = self._get_tag_by_hash(rfid_hash)
         return tag is None or tag['mode'] != TAG_MODE_PRIVATE
+
+def session_state(row: dict) -> str:
+    """Anzeige-Zustand einer Session — EINE Stelle für Verlauf, Übersicht, CSV und Verwaltung.
+
+    active · discarded · incomplete · private · rejected (von Dolibarr abgelehnt) ·
+    transmitted · pending (abgeschlossen, wartet auf Übertragung)
+    """
+    status = (row.get('status') or '').lower()
+    if status in ('active', 'discarded', 'incomplete', 'private'):
+        return status
+    if row.get('transmitted_at'):
+        return 'transmitted'
+    return 'rejected' if row.get('transmit_error') else 'pending'
+
 
 def _classify_ocpp_energy(start_kwh: float, end_kwh: Optional[float], start_time: str,
                           end_time: str, min_kwh: float,

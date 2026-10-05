@@ -103,3 +103,29 @@ async def test_redirect_never_leaves_host(env):
     r = await c.post('/sessions/transmit', data={'_csrf': token}, allow_redirects=False,
                      headers={'Referer': 'https://evil.com/sessions?x=1'})
     assert r.headers['Location'] == '/sessions?x=1', "nur Pfad/Filter, nie der fremde Host"
+
+
+async def test_rejected_shown_with_reason_and_retry(env):
+    c, sm = env['client'], env['sm']
+    sid = env['ids']['pending']
+    conn = sqlite3.connect(sm.db_path)
+    conn.execute("UPDATE sessions SET transmit_error = ?, transmit_error_at = '2026-10-05T10:00:00' WHERE id = ?",
+                 ('HTTP 404: {"success":false,"error":"RFID not registered in Dolibarr"}', sid))
+    conn.commit()
+    conn.close()
+    page = await (await c.get('/sessions?month=all&status=rejected')).text()
+    assert 'abgelehnt' in page and 'keinem Mitarbeiter zugeordnet' in page and 'Erneut senden' in page
+    assert '1 Ladung(en) von Dolibarr abgelehnt' in page
+    r = await _post(c, '/sessions', f'/sessions/{sid}/retry', {})
+    assert r.status == 302 and env['calls'] == [1]
+    row = [x for x in sm.list_sessions() if x['id'] == sid][0]
+    assert row['transmit_error_at'] is None, "beim nächsten Lauf wieder dabei"
+
+
+async def test_history_labels_active_and_private_correctly(env):
+    _insert(env['sm'], '2026-09-20T08:00:00', None, 'active')
+    _insert(env['sm'], '2026-09-21T08:00:00', 4.0, 'private')
+    page = await (await env['client'].get('/history?year=2026&month=9')).text()
+    assert 'läuft' in page and '>privat<' in page
+    csv_text = (await (await env['client'].get('/export?year=2026&month=9')).read()).decode('utf-8-sig')
+    assert ';läuft;' in csv_text and ';privat;' in csv_text and ';übertragen;' in csv_text

@@ -11,12 +11,15 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from session_manager import session_state
+
 from .web import _e, _msg, _page
 
 _MONTH = re.compile(r'^\d{4}-\d{2}$')
 # Filterwert → (Bezeichnung, Badge-Klasse)
 STATUS = {
     'pending': ('ausstehend', 'b-pend'),
+    'rejected': ('abgelehnt', 'b-inc'),
     'transmitted': ('übertragen', 'b-ok'),
     'active': ('läuft', 'b-pend'),
     'incomplete': ('unvollständig', 'b-inc'),
@@ -34,9 +37,7 @@ _CSS = """
 
 
 def status_key(s: dict) -> str:
-    if s.get('status') == 'completed':
-        return 'transmitted' if s.get('transmitted_at') else 'pending'
-    return s.get('status') or ''
+    return session_state(s)
 
 
 def _kwh(value) -> str:
@@ -55,6 +56,16 @@ def _short(start, end=None) -> str:
     if end is not None and start and start[:10] == end[:10]:
         return end[11:16]
     return f'{value[8:10]}.{value[5:7]}. {value[11:16]}'
+
+
+def _dolibarr_reason(error: str) -> str:
+    """'HTTP 404: {"success":false,"error":"RFID not registered in Dolibarr"}' → verständlicher Grund."""
+    text = str(error or '')
+    if 'RFID not registered' in text:
+        return 'Karte in Dolibarr keinem Mitarbeiter zugeordnet'
+    if 'User not found' in text:
+        return 'Mitarbeiter in Dolibarr nicht gefunden oder deaktiviert'
+    return text[:160]
 
 
 def _filters(request):
@@ -89,14 +100,20 @@ def register(app: web.Application, ctx) -> None:
         last = state.get('last_transmit')
         if last:
             last_txt = (f'{_e(_when(last["time"]))}: {last["transmitted"]} übertragen'
+                        + (f', {last["rejected"]} abgelehnt' if last.get('rejected') else '')
                         + (f', {last["failed"]} fehlgeschlagen – {_e(last.get("error"))}' if last['failed'] else ''))
         else:
             last_txt = 'seit dem Start noch keiner'
         reach = ('erreichbar' if state.get('client') else
                  'nicht eingerichtet' if not api.get('dolibarr_url') else 'nicht erreichbar oder noch nicht geprüft')
         warn = ''
+        if counts.get('rejected'):
+            warn += _msg('err', f'{counts["rejected"]} Ladung(en) von Dolibarr abgelehnt – meist ist die Karte in '
+                                'Dolibarr keinem Mitarbeiter zugeordnet (ExpenseCharge → RFID-Verwaltung). Danach '
+                                '„Erneut senden“. Die übrigen Ladungen werden weiter übertragen. '
+                                '<a href="/sessions?month=all&status=rejected">Anzeigen</a>')
         if counts.get('incomplete'):
-            warn = _msg('warn', f'{counts["incomplete"]} unvollständige Ladung(en) – sie werden erst übertragen, '
+            warn += _msg('warn', f'{counts["incomplete"]} unvollständige Ladung(en) – sie werden erst übertragen, '
                                 'wenn die Energiemenge unten korrigiert ist. <a href="/sessions?month=all&status='
                                 'incomplete">Anzeigen</a>')
         return (f'{warn}<ul class="checks"><li><b>Dolibarr</b> {_e(api.get("dolibarr_url") or "–")} · {reach}</li>'
@@ -119,7 +136,10 @@ def register(app: web.Application, ctx) -> None:
                           'onsubmit="return confirm(\'Mit dieser Energiemenge abschließen und übertragen?\')">'
                           f'<input name="kwh" inputmode="decimal" placeholder="kWh" value="{_e(_kwh(s.get("total_kwh")))}" '
                           'required><button type="submit">Abschließen</button></form>')
-            if key in ('incomplete', 'pending'):
+            if key == 'rejected':
+                action = (f'<form method="POST" action="/sessions/{s["id"]}/retry">'
+                          '<button type="submit">Erneut senden</button></form>')
+            if key in ('incomplete', 'pending', 'rejected'):
                 action += (f'<form method="POST" action="/sessions/{s["id"]}/discard" '
                            'onsubmit="return confirm(\'Ladung verwerfen? Sie wird nie übertragen.\')">'
                            '<button type="submit">Verwerfen</button></form>')
@@ -129,6 +149,7 @@ def register(app: web.Application, ctx) -> None:
                           f'<td><span class="badge {badge}">{_e(label)}</span>'
                           f'{"<div class=hint>" + _e((s.get("stop_reason") or "").strip()) + "</div>" if s.get("stop_reason") else ""}'
                           f'{"<div class=hint>" + _e(_when(s["transmitted_at"])) + "</div>" if s.get("transmitted_at") else ""}'
+                          f'{"<div class=hint>" + _e(_dolibarr_reason(s["transmit_error"])) + "</div>" if key == "rejected" else ""}'
                           f'</td><td>{_e(card(s, names))}</td><td class="mono">{_e(s.get("wallbox_id"))}</td>'
                           f'<td>{action}</td></tr>')
         total = sum(s.get('total_kwh') or 0 for s in rows if status_key(s) in ('pending', 'transmitted'))
@@ -204,6 +225,17 @@ def register(app: web.Application, ctx) -> None:
                                      f'Ladung #{sid} ist nicht (mehr) unvollständig.')
         raise back(request)
 
+    async def retry(request):
+        sid = int(request.match_info['sid'])
+        ok = sm.retry_rejected_session(sid)
+        if ok:
+            ctx.audit.record(request['user'], 'ladevorgang', None, f'#{sid}', 'erneut senden')
+            if ctx.transmit_now:
+                ctx.transmit_now()
+        ctx.flash['sessions'] = _msg('ok' if ok else 'err', f'Ladung #{sid} wird erneut gesendet.' if ok else
+                                     f'Ladung #{sid} ist nicht abgelehnt.')
+        raise back(request)
+
     async def discard(request):
         sid = int(request.match_info['sid'])
         ok = sm.discard_session(sid)
@@ -218,3 +250,4 @@ def register(app: web.Application, ctx) -> None:
     r.add_post('/sessions/transmit', transmit)
     r.add_post(r'/sessions/{sid:\d+}/resolve', resolve)
     r.add_post(r'/sessions/{sid:\d+}/discard', discard)
+    r.add_post(r'/sessions/{sid:\d+}/retry', retry)

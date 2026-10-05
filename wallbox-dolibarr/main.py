@@ -885,12 +885,15 @@ async def periodic_transmission():
                     # stehenbleiben, sonst läuft die Wallbox in ihren Timeout.
                     result = await asyncio.to_thread(
                         session_manager.transmit_completed_sessions, api_client)
-                    if result["transmitted"] or result["failed"] or _manual:
+                    if result["transmitted"] or result["failed"] or result.get("rejected") or _manual:
                         note_transmit_result(api_state, result)
                     if result["transmitted"] > 0:
                         _LOGGER.info("Sessions an Dolibarr übertragen: %s", result["transmitted"])
                         if api_state is not None and not api_state.get('client'):
                             api_state['client'] = api_client
+                    if result.get("rejected"):
+                        _LOGGER.warning("%s Session(s) von Dolibarr abgelehnt — zurückgestellt, die übrigen "
+                                        "werden weiter übertragen (Oberfläche → Ladevorgänge)", result["rejected"])
                     if result["failed"] > 0:
                         _LOGGER.error("Fehler bei API-Übertragung: %s Sessions fehlgeschlagen",
                                       result["failed"])

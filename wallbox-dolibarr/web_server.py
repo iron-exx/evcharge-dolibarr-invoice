@@ -24,6 +24,7 @@ from aiohttp import web
 from admin import validate
 from admin import web as admin_web
 from ocpp_server.id_tags import normalize_id_tag
+from session_manager import session_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -369,6 +370,7 @@ def note_transmit_result(api_state, result) -> None:
         api_state['last_transmit'] = {
             'time': datetime.now().isoformat(timespec='seconds'),
             'transmitted': result.get('transmitted', 0), 'failed': result.get('failed', 0),
+            'rejected': result.get('rejected', 0),
             'error': (result.get('errors') or [''])[0]}
 
 
@@ -425,6 +427,26 @@ def _base(active, content, base_href=''):
 # DB-Hilfsfunktionen
 # ---------------------------------------------------------------------------
 
+# Zustand → (Badge-Klasse, Text, Tooltip)
+_STATE_BADGES = {
+    'active':      ('b-pend', 'läuft', 'Ladevorgang läuft noch'),
+    'discarded':   ('b-disc', '⊘ verworfen', 'Karte gelesen, aber zu wenig kWh — nicht übertragen'),
+    'incomplete':  ('b-inc', '⚠ unvollständig', 'Zählerstand unbekannt — unter „Ladevorgänge“ nachtragen'),
+    'private':     ('b-disc', 'privat', 'private Karte — bleibt lokal'),
+    'rejected':    ('b-inc', '⚠ abgelehnt', 'von Dolibarr abgelehnt — Grund unter „Ladevorgänge“'),
+    'transmitted': ('b-ok', 'übertragen', ''),
+    'pending':     ('b-pend', 'ausstehend', 'wird beim nächsten Durchlauf übertragen'),
+}
+
+
+def _state_badge(row) -> str:
+    cls, text, title = _STATE_BADGES[session_state(row)]
+    if cls == 'b-ok':
+        text = f'{_ICO_CHECK} {text}'
+    tip = f' title="{html.escape(title)}"' if title else ''
+    return f'<span class="badge {cls}"{tip}>{text}</span>'
+
+
 def _db_month(db_path, year, month):
     """Alle Sessions eines Monats aus SQLite"""
     conn = sqlite3.connect(db_path)
@@ -432,7 +454,7 @@ def _db_month(db_path, year, month):
     cur = conn.cursor()
     cur.execute("""
         SELECT id, rfid_hash, wallbox_id, start_time, end_time,
-               total_kwh, status, transmitted_at
+               total_kwh, status, transmitted_at, transmit_error
         FROM sessions
         WHERE strftime('%Y', start_time) = ?
           AND strftime('%m', start_time) = ?
@@ -639,15 +661,7 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
             date   = (s.get('start_time') or '')[:10]
             rid    = (s.get('rfid_hash') or '')[:8]
             manual = ' · manuell' if (s.get('start_time') or '').endswith('T12:00:00') else ''
-            st     = (s.get('status') or '').lower()
-            if st == 'discarded':
-                tag = '<span class="badge b-disc">⊘ verworfen</span>'
-            elif st == 'incomplete':
-                tag = '<span class="badge b-inc">⚠ unvollst.</span>'
-            elif s.get('transmitted_at'):
-                tag = f'<span class="badge b-ok">{_ICO_CHECK} übertragen</span>'
-            else:
-                tag = '<span class="badge b-pend">ausstehend</span>'
+            tag    = _state_badge(s)
             rows_html += (
                 f'<div class="s-row">'
                 f'<span>'
@@ -1411,23 +1425,9 @@ def _build_history_page(session_manager, year, month, base_href=''):
             time_str = (s.get('start_time') or '')[11:16]
             rid      = (s.get('rfid_hash') or '')[:12] + '…'
             wbx      = s.get('wallbox_id') or '—'
-            status   = (s.get('status') or '').lower()
-            if status == 'discarded':
-                tag = ('<span class="badge b-disc" '
-                       'title="Karte gelesen, aber zu wenig kWh — nicht übertragen">'
-                       '⊘ verworfen</span>')
-                row_style = ' style="opacity:0.55"'
-            elif status == 'incomplete':
-                tag = ('<span class="badge b-inc" '
-                       'title="Zählerstand unbekannt — bitte manuell nachtragen">'
-                       '⚠ unvollständig</span>')
-                row_style = ' style="opacity:0.7"'
-            elif s.get('transmitted_at'):
-                tag = f'<span class="badge b-ok">{_ICO_CHECK} übertragen</span>'
-                row_style = ''
-            else:
-                tag = '<span class="badge b-pend">ausstehend</span>'
-                row_style = ''
+            state    = session_state(s)
+            tag      = _state_badge(s)
+            row_style = {'discarded': ' style="opacity:0.55"', 'incomplete': ' style="opacity:0.7"'}.get(state, '')
             table_rows += (
                 f'<tr{row_style}>'
                 f'<td>{date}<div class="td-dim">{time_str}</div></td>'
@@ -1584,7 +1584,11 @@ def create_app(session_manager, config, api_state):
                 note_transmit_result(api_state, result)
                 sent   = result.get('transmitted', 0)
                 failed = result.get('failed', 0)
-                if sent == 0 and failed == 0:
+                rejected = result.get('rejected', 0)
+                if rejected:
+                    msg_html = (f'<div class="msg warn">{sent} übertragen, {rejected} von Dolibarr abgelehnt '
+                                f'(Grund unter „Ladevorgänge“): {html.escape(result["errors"][0])}</div>')
+                elif sent == 0 and failed == 0:
                     msg_html = '<div class="msg warn">Keine ausstehenden Sessions.</div>'
                 elif failed > 0:
                     err = result['errors'][0] if result['errors'] else ''
@@ -1625,11 +1629,7 @@ def create_app(session_manager, config, api_state):
             rfid_s  = (s.get('rfid_hash') or '')[:16] + '…'
             wbx_s   = s.get('wallbox_id') or ''
             kwh_s   = f"{(s.get('total_kwh') or 0):.3f}".replace('.', ',')
-            _st = (s.get('status') or '').lower()
-            status  = ('verworfen'      if _st == 'discarded'
-                       else 'unvollständig' if _st == 'incomplete'
-                       else 'übertragen'    if s.get('transmitted_at')
-                       else 'ausstehend')
+            status  = _STATE_BADGES[session_state(s)][1].lstrip('⊘⚠ ')
             tx_time = (s.get('transmitted_at') or '')[:16]
             writer.writerow([date_s, time_s, rfid_s, wbx_s, kwh_s, status, tx_time])
 

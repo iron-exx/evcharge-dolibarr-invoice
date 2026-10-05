@@ -16,6 +16,17 @@ from utils.wallbox_id import to_dolibarr_id
 _LOGGER = logging.getLogger(__name__)
 
 
+# Fehler, die an genau dieser Ladung liegen (Karte in Dolibarr unbekannt,
+# ungültige Daten). Alles andere — Token falsch (401), Dolibarr down (5xx),
+# Zeitüberschreitung, Login-Seite statt JSON — trifft jede Ladung gleich.
+_PERMANENT_HTTP = ('HTTP 400', 'HTTP 404', 'HTTP 409', 'HTTP 422')
+
+
+def is_permanent_error(error: str) -> bool:
+    """True, wenn Dolibarr DIESE Ladung ablehnt — dann die übrigen weiter senden."""
+    return str(error or '').startswith(_PERMANENT_HTTP)
+
+
 def format_timestamp(dt: Any) -> str:
     """
     Formatiert ein datetime-Objekt zu ISO 8601 String mit Zeitzone
