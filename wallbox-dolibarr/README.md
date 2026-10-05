@@ -432,10 +432,9 @@ oder in einem Debian-LXC. Beide Wege bleiben verfügbar: **als HA-Addon** wie bi
 | Repository | Rolle |
 |---|---|
 | **`systemwerk-GmbH-Co-KG/ExpenseCharge`** | **Quelle für Deployments** — hier wird entwickelt |
-| `iron-exx/evcharge-dolibarr-invoice` | Spiegel desselben Branches, gleicher Stand |
+| `iron-exx/evcharge-dolibarr-invoice` | Spiegel, gleicher Stand (`main` und `feat/ocpp-central-system`) |
 
-Geklont wird `main`. Beim Spiegel `iron-exx` ist `main` ein älteres, anderes Projekt —
-dort den Branch `feat/ocpp-central-system` nehmen.
+Geklont wird `main` — in beiden Repositories derselbe Stand.
 
 Beide Repositories sind **öffentlich**: `git clone` und `git pull` über HTTPS brauchen
 weder Token noch Deploy Key.
