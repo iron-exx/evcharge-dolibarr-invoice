@@ -449,6 +449,21 @@ weder Token noch Deploy Key.
 
 ### Einrichtung
 
+Schritt für Schritt mit Proxmox-Container, Wallbox-Anbindung, Sicherung, Update und
+typischen Fehlerbildern: [INSTALL.md → 3.5](../INSTALL.md#35--variante-standalone-docker-ohne-home-assistant-zb-proxmox-lxc).
+Kurzfassung — entweder ohne Skript (Einrichtung dann komplett im Browser):
+
+```bash
+git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+cd ExpenseCharge/wallbox-dolibarr
+mkdir -p data && cp options.standalone.example.json data/options.json
+echo "WEB_BIND=0.0.0.0" > .env
+docker compose up -d --build
+docker compose logs expensecharge | grep Einrichtungscode   # dann http://<IP>:8099/
+```
+
+oder mit dem Skript, das im Terminal abfragt:
+
 ```bash
 git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr

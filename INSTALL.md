@@ -138,29 +138,151 @@ Checkliste:
 Details, Herstellertabelle und Sicherheitshinweise:
 [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
 
-## 3.5 — Variante Standalone: Docker ohne Home Assistant
+## 3.5 — Variante Standalone: Docker ohne Home Assistant (z.B. Proxmox-LXC)
 
 Wer kein Home Assistant hat oder will, überspringt Schritt 3 komplett und fährt
-ExpenseCharge als einfachen Container (Raspberry Pi mit 64-Bit-OS, Debian-LXC, …).
+ExpenseCharge als einfachen Container. Eingerichtet und verwaltet wird dann alles
+**im Browser** (Admin-Konto, Dolibarr, Wallboxen, Karten, Ladevorgänge, Backup).
+
 Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `feat/ocpp-central-system`
-(öffentlich — kein Token, kein Deploy Key nötig):
+(öffentlich — kein Token, kein Deploy Key nötig).
+
+### 3.5.1 — Proxmox-Container anlegen
+
+| Einstellung | Wert |
+|---|---|
+| Vorlage | Debian 13 (trixie), **unprivilegiert** |
+| Ressourcen | 1 CPU, 1 GB RAM, 8 GB Disk |
+| **Optionen → Features** | **`nesting=1` und `keyctl=1`** — ohne läuft Docker im LXC nicht |
+| Netzwerk IPv4 | **statisch**, z.B. `192.168.101.112/24`, Gateway `192.168.101.1` — nicht DHCP: die Wallbox braucht eine feste Adresse |
+
+Die IP vorher prüfen (`ping 192.168.101.112` vom Proxmox-Host — keine Antwort = frei)
+und im DHCP-Server reservieren bzw. aus dem Pool nehmen. Nachträglich ändern:
 
 ```bash
-git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
-cd ExpenseCharge/wallbox-dolibarr
-
-./setup-standalone.sh                        # fragt alles ab, gibt die Wallbox-Daten aus
-docker compose up -d --build --force-recreate
-docker compose logs -f
+# auf dem Proxmox-Host; Bridge, hwaddr, firewall, tag aus "pct config <ID>" übernehmen
+pct set <ID> -net0 name=eth0,bridge=vmbr0,ip=192.168.101.112/24,gw=192.168.101.1,ip6=manual
+pct reboot <ID>
 ```
 
-Das Skript schreibt `data/options.json` (mit zufälligem OCPP-Passwort) und die `.env`
-und gibt am Ende Backend-URL `ws://<IP>:9000/`, Charge-Point-ID und Passwort für die
-Wallbox aus. Web-UI im LAN/VPN (`WEB_BIND=0.0.0.0`), Ersteinrichtung und Anmeldung im Browser,
-Konfiguration per `.env` und welcher Befehl nach welcher Änderung nötig ist
-(`restart` reicht bei Ports **nicht**, dann `docker compose up -d --force-recreate`):
-Proxmox-CT-Firewall (8099 nur Admin-Netz, 9000 nur Wallbox-Netz):
-siehe [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant).
+### 3.5.2 — Docker und Code
+
+```bash
+apt update && apt full-upgrade -y
+apt install -y git curl ca-certificates
+curl -fsSL https://get.docker.com | sh            # Docker inkl. "docker compose"
+docker compose version
+
+cd /opt
+git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+cd ExpenseCharge/wallbox-dolibarr
+```
+
+### 3.5.3 — Erster Start und Einrichtung im Browser
+
+```bash
+mkdir -p data
+cp options.standalone.example.json data/options.json   # Vorlage; der Assistent ersetzt die Platzhalter
+echo "WEB_BIND=0.0.0.0" > .env                           # Web-UI im LAN/VPN (Vorgabe: nur lokal)
+docker compose up -d --build                             # erster Bau ca. 1–3 min
+docker compose logs expensecharge | grep Einrichtungscode
+```
+
+Dann `http://<Container-IP>:8099/` öffnen (**http**, nicht https). Der Assistent:
+
+1. **Einrichtungscode** aus dem Log + Admin-Konto (Passwort mind. 10 Zeichen)
+2. **Dolibarr**-URL und API-Token (= `WALLBOXBILLING_API_TOKEN` aus Schritt 2.1),
+   „Verbindung testen“ prüft DNS, TLS, Token und Modul-Version
+3. **Wallbox**: Charge-Point-ID (Alfen: Seriennummer), Name, `wallbox_id`, Passwort —
+   leer = zufällig erzeugt. Steht in der Wallbox schon ein Passwort (z.B. nach einer
+   Neuinstallation), genau dieses eintragen, dann muss man an der Wallbox nichts ändern
+4. **Karten** (optional, später auch unter „Karten“ per Lernmodus)
+5. **Zusammenfassung** mit Backend-URL, Charge-Point-ID und Passwort zum Kopieren —
+   das Passwort steht nur dieses eine Mal da
+
+Wer lieber im Terminal einrichtet: `./setup-standalone.sh` fragt dasselbe ab und schreibt
+`data/options.json` + `.env` (Details in der README).
+
+### 3.5.4 — Wallbox verbinden
+
+In der Wallbox (Alfen: ACE Service Installer → Connectivity → OCPP):
+
+| Feld | Wert |
+|---|---|
+| Backend-URL | `ws://<Container-IP>:9000/` |
+| Protokoll | OCPP 1.6 JSON |
+| Security Profile | 1 (Basic Auth) |
+| Charge-Point-ID / Benutzer | die ID aus dem Assistenten |
+| Passwort | das Passwort aus dem Assistenten |
+
+Innerhalb einer Minute steht sie unter **Wallboxen** als „verbunden“. Wenn nicht:
+
+| Im Log (`docker compose logs -f`) | Bedeutung |
+|---|---|
+| `Unbekannte Charge-Point-ID 'XYZ'` | ID stimmt nicht — die Wallbox steht unter **Wallboxen → Wartende Wallboxen**, dort „Übernehmen“ |
+| `falsche oder fehlende Zugangsdaten` | Passwort in Wallbox und Oberfläche unterscheiden sich |
+| gar nichts | Wallbox erreicht Port 9000 nicht: Backend-IP, Proxmox-Firewall (3.5.7), VLAN |
+
+Danach unter **Wallboxen → (Wallbox) → Konfiguration lesen → Empfohlene übernehmen**.
+
+### 3.5.5 — Sicherung (vor jedem Update, vor jedem Umbau)
+
+Im Browser: **Einstellungen → Backup herunterladen** (ZIP mit Konfiguration, allen
+Ladungen, Admin-Konto, Protokoll — enthält Token und Wallbox-Passwörter im Klartext).
+Oder im Container:
+
+```bash
+cd /opt/ExpenseCharge/wallbox-dolibarr
+tar czf /root/expensecharge-backup-$(date +%F).tgz data .env
+```
+
+> **Nie einen Container löschen, bevor `data/` gesichert ist.** Darin liegen die noch
+> nicht an Dolibarr übertragenen Ladungen — sie gibt es nirgends sonst.
+
+Umzug in einen neuen Container (auf dem Proxmox-Host, `<ALT>`/`<NEU>` = CT-IDs aus `pct list`):
+
+```bash
+pct exec <ALT> -- tar czf /root/ec.tgz -C /opt/ExpenseCharge/wallbox-dolibarr data .env
+pct pull <ALT> /root/ec.tgz /root/ec.tgz
+pct push <NEU> /root/ec.tgz /root/ec.tgz          # <NEU> muss laufen
+pct exec <NEU> -- tar xzf /root/ec.tgz -C /opt/ExpenseCharge/wallbox-dolibarr
+```
+
+Im neuen Container nach 3.5.2 die Daten auspacken und `docker compose up -d --build` —
+Konto, Wallbox-Passwort und Ladungen sind wieder da. Wiederherstellen geht auch im
+Browser: **Einstellungen → Wiederherstellen**.
+
+### 3.5.6 — Update
+
+```bash
+cd /opt/ExpenseCharge
+git pull
+cd wallbox-dolibarr
+docker compose up -d --build --force-recreate
+```
+
+`data/` und `.env` bleiben unberührt — **nichts vorher löschen**. `docker compose restart`
+reicht nach einem Update nicht (läuft mit dem alten Image weiter). Wer den Code-Stand
+sauber zurücksetzen will: `git fetch && git reset --hard origin/feat/ocpp-central-system`
+(betrifft nur versionierte Dateien, nie `data/` und `.env`).
+
+### 3.5.7 — Firewall
+
+Proxmox → Container → Firewall: `8099/tcp` nur aus dem Admin-/VPN-Netz, `9000/tcp` nur
+aus dem Wallbox-Netz. Beide nie ins Internet. Details:
+[wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant).
+
+### 3.5.8 — Fehlerbilder aus der Praxis
+
+| Symptom | Ursache | Lösung |
+|---|---|---|
+| `git: cannot execute: required file not found` | git-Paket kaputt (abgebrochenes Update) | `dpkg --configure -a && apt install --reinstall git` |
+| Browser zeigt „Error response · 501 · Unsupported method ('GET')“ | **anderer Dienst** unter dieser IP/Port — nicht ExpenseCharge | Adresse prüfen; im Container `curl -s http://<IP>:8099/health` muss `{"status": "ok"}` liefern |
+| Web-UI im LAN nicht erreichbar, `curl localhost:8099/health` geht | `WEB_BIND` fehlt | `WEB_BIND=0.0.0.0` in `.env`, dann `docker compose up -d --force-recreate` |
+| Menüpunkt führt auf Unterseiten zu „404“ | alte Version | Update (3.5.6) |
+| Wallbox verbindet nicht | siehe Tabelle in 3.5.4 | |
+| Einrichtungscode verloren | — | `docker compose logs expensecharge \| grep Einrichtungscode` (gilt bis das Konto angelegt ist) |
+| Admin-Passwort vergessen | — | `data/admin.json` löschen, `docker compose restart`, neuer Einrichtungscode im Log |
 
 ## 4 — Funktionsprüfung (End-to-End)
 
@@ -193,6 +315,8 @@ siehe [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#sta
 1. Neue ZIP im Modulmanager hochladen → „Überschreiben? **Ja**".
 2. Modul deaktivieren + wieder aktivieren → `init()` läuft erneut (idempotent, `CREATE TABLE IF NOT EXISTS`).
 3. RFID-Mappings, Preise, API-Token und Spesenabrechnungen bleiben erhalten — die Tabelle `llx_wallbox_rfid` wird bei Deaktivierung/Entfernen **nicht** gelöscht.
+4. ExpenseCharge selbst: im HA-Addon über den Add-on-Store, standalone per `git pull` +
+   `docker compose up -d --build --force-recreate` (siehe 3.5.6).
 
 ---
 
@@ -202,6 +326,8 @@ siehe [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#sta
 - [ ] Dolibarr ausschließlich über HTTPS (Reverse-Proxy / Let's Encrypt)
 - [ ] DB-Backup enthält `llx_wallbox_rfid` und `llx_expensereport*`
 - [ ] HA-Backup enthält das Addon-Volume (`/data/sessions.db`)
+- [ ] Standalone: regelmäßig **Einstellungen → Backup** herunterladen und sicher ablegen (enthält Token und Wallbox-Passwörter)
+- [ ] Standalone: Ersteinrichtung gleich nach dem ersten Start abschließen; Ports 8099/9000 per CT-Firewall begrenzt
 - [ ] Klartext-RFIDs werden nicht geloggt oder angezeigt (nur SHA-256-Hash in der DB)
 
 ---
