@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 _USERNAME = re.compile(r'^[A-Za-z0-9._-]{3,32}$')
 # OCPP 1.6: Charge-Point-Identity, als letztes URL-Segment
 _CP_ID = re.compile(r'^[A-Za-z0-9._:-]{1,48}$')
-_WALLBOX_ID = re.compile(r'^[\w.-]{1,50}$')     # wie receive.php
+_WALLBOX_ID = re.compile(r'^[\w.-]{1,50}$', re.ASCII)     # wie receive.php (PHP-\w ohne /u = nur ASCII)
 _RFID = re.compile(r'^[A-Za-z0-9]{4,20}$')      # OCPP idTag: CiString20
 
 MIN_ADMIN_PASSWORD = 10
@@ -59,9 +59,12 @@ def charge_point_id(value: str) -> str:
 
 
 def wallbox_id(value: str) -> str:
-    value = (value or '').strip()
+    """Kennung, die Dolibarr in jede Spesenzeile schreibt — Leerzeichen gehen dort
+    nicht, darum 'Wallbox 1' → 'Wallbox_1' statt einer Fehlermeldung."""
+    value = re.sub(r'\s+', '_', (value or '').strip())
     if not _WALLBOX_ID.match(value):
-        raise ValueError('wallbox_id: 1–50 Zeichen, Buchstaben, Ziffern, . _ -')
+        raise ValueError('wallbox_id: 1–50 Zeichen, nur Buchstaben, Ziffern, . _ - '
+                         '(Leerzeichen werden zu _). Die Anzeige-Bezeichnung gehört ins Feld „Name“.')
     return value
 
 

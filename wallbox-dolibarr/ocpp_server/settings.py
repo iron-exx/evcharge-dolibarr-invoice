@@ -9,7 +9,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_INTERVAL = 300
 _MIN_HEARTBEAT, _MAX_HEARTBEAT = 30, 3600
 _MIN_PASSWORD_LEN = 16          # OCPP-1.6-Security-Whitepaper: AuthorizationKey >= 16 Byte
-_WALLBOX_ID_INVALID = re.compile(r'[^\w\-.]')   # receive.php: ^[\w\-\.]{1,50}$
+_WALLBOX_ID_INVALID = re.compile(r'[^\w\-.]', re.ASCII)   # receive.php: ^[\w\-\.]{1,50}$, PHP-\w = nur ASCII
 
 
 @dataclass(frozen=True)

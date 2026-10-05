@@ -218,7 +218,7 @@ def register(app: web.Application, ctx) -> None:
   <label class="flabel">Charge-Point-ID</label>{cp_id_field}
   <div class="row2">
     <div><label class="flabel">Name</label><input name="name" value="{_e(values.get('name'))}" placeholder="Garage links"></div>
-    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" required></div>
+    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" required><div class="hint">Kennung für Dolibarr (steht in der Spesenzeile), z.B. <code>garage</code> oder <code>wallbox_1</code> – Leerzeichen werden zu _.</div></div>
   </div>
   <label class="flabel">OCPP-Passwort</label>
   <input name="password" type="password" autocomplete="new-password">

@@ -145,3 +145,10 @@ async def test_wallbox_pages_need_login(env):
     token = _token(await (await c.get('/login')).text())
     r = await c.post('/wallbox/CP1/command', data={'cmd': 'reset', 'type': 'Hard', '_csrf': token})
     assert r.status == 401
+
+
+async def test_wallbox_id_with_space_accepted(env):
+    r = await _post(env['client'], '/wallboxes/new', '/wallboxes/new',
+                    {'cp_id': 'W1', 'name': 'Wallbox 1', 'wallbox_id': 'Wallbox 1', 'password': ''})
+    assert r.status == 302
+    assert [c for c in _saved(env) if c['id'] == 'W1'][0]['wallbox_id'] == 'Wallbox_1'
