@@ -176,7 +176,7 @@ def _decorate(page: str, request, ctx, has_account) -> str:
         lambda m: m.group(1) + f'<input type="hidden" name="_csrf" value="{_e(request["csrf"])}">', page)
     user = request.get('user')
     if user:
-        acct = (f'<form method="POST" action="/logout" class="acct">{_e(user)} · '
+        acct = (f'<form method="POST" action="/logout" class="acct"><span class="acct-user">{_e(user)} ·</span> '
                 f'<input type="hidden" name="_csrf" value="{_e(request["csrf"])}">'
                 '<button type="submit">Abmelden</button></form>')
     elif not has_account:

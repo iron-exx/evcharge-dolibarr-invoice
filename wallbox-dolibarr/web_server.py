@@ -83,7 +83,8 @@ html, body {
 .acct a, .acct button { background: none; border: none; padding: 0; font: inherit; font-weight: 600;
   color: var(--primary-d); cursor: pointer; text-decoration: none; }
 @media (max-width: 560px) { .hdr { padding: 0 14px; } .hdr-sub { display: none; } .nav { padding: 0 8px; }
-  .nav a { padding: 11px 11px; } }
+  .nav a { padding: 11px 11px; } .acct-user { display: none; } }
+.acct-user { white-space: nowrap; }
 .chip { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
 .dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
 .dot-ok  { background: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
