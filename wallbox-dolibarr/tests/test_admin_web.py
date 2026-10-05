@@ -262,3 +262,11 @@ async def test_ha_addon_has_no_login(tmp_path, monkeypatch):
     async with TestClient(TestServer(create_app(sm, {}, api_state))) as c:
         assert (await c.get('/system.json')).status == 200
         assert (await c.get('/setup')).status == 404
+
+
+async def test_nav_links_work_from_nested_pages(client):
+    """Die Haupt-Navigation ist relativ (HA-Ingress) — auf /setup/5 o.ä. muss sie trotzdem auf /history zeigen."""
+    await _setup_admin(client)
+    page = await (await client.get('/setup/5')).text()
+    assert '<base href="/">' in page
+    assert (await client.get('/history')).status == 200

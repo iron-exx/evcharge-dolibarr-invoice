@@ -168,6 +168,10 @@ def _plain(status, text):
 
 def _decorate(page: str, request, ctx, has_account) -> str:
     """CSRF-Feld in jedes POST-Formular, Konto/Protokoll in Kopf und Navigation."""
+    # Die Haupt-Navigation ist relativ (für den HA-Ingress-Pfad). Standalone liegt
+    # alles direkt unter / — ohne <base> zeigte „Verlauf“ auf /setup/5 nach /setup/history.
+    if '<base ' not in page:
+        page = page.replace('<head>', '<head>\n  <base href="/">', 1)
     page = _FORM_POST.sub(
         lambda m: m.group(1) + f'<input type="hidden" name="_csrf" value="{_e(request["csrf"])}">', page)
     user = request.get('user')
