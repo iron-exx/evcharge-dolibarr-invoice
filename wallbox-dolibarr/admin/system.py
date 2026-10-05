@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 # Bind-Adressen fehlen bewusst: die hängen an der Portfreigabe in der
 # docker-compose.yml/.env — hier geändert, wäre die Oberfläche weg.
 FIELDS = (
+    ('tax_flat_price', 'Strompreis-Pauschale Ladenachweis (€/kWh, 0 = tatsächl. Kosten)', 0.0, 0.0, 2.0, float),
     ('min_session_kwh', 'Mindestmenge je Ladung (kWh)', 0.05, 0.0, 5.0, float),
     ('max_session_hours', 'Warnung bei Ladung länger als (h)', 24, 1, 168, int),
     ('api.transmit_interval', 'Übertragung an Dolibarr alle (s)', 300, 30, 86400, int),
@@ -48,6 +49,7 @@ FIELDS = (
     ('trend_days', 'Tagesstreifen: Fenster (Tage)', 14, 1, 90, int),
 )
 _RESTART = 'Einstellungen'
+_HOT = ('log_level', 'tax_flat_price')    # wirken ohne Neustart
 BACKUP_FILES = ('options.json', 'sessions.db', 'admin.json', 'secret.key', 'audit.log')
 _MAX_RESTORE_BYTES = 200 * 1024 * 1024
 
@@ -303,7 +305,7 @@ def register(app: web.Application, ctx) -> None:
   </div>
   <label class="hint"><input type="checkbox" name="ocpp_apply_recommended_config" value="1"
     {'checked' if recommended else ''}> Empfohlene OCPP-Einstellungen nach jedem Wallbox-Start setzen</label>
-  <div class="hint">Alles außer dem Detailgrad wirkt nach einem Neustart. Leere Felder = Vorgabe.
+  <div class="hint">Detailgrad und Strompreis-Pauschale wirken sofort, der Rest nach einem Neustart. Leere Felder = Vorgabe.
   Ports und Bind-Adressen stehen in der <code>.env</code>.</div>
   <button class="btn-save" type="submit">Speichern</button>
 </form>
@@ -428,7 +430,9 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
                     changes[field] = _parse(raw, label, lo, hi, cast)
                 elif _get(stored, field) is not None:
                     changes[field] = default   # leer = zurück zur Vorgabe
-            changes['ocpp_apply_recommended_config'] = bool(form.get('ocpp_apply_recommended_config'))
+            recommended = bool(form.get('ocpp_apply_recommended_config'))
+            if recommended != bool(ctx.config.get('ocpp_apply_recommended_config')):   # fehlend = aus
+                changes['ocpp_apply_recommended_config'] = recommended
         except ValueError as exc:
             return page(request, 'Einstellungen', settings_body(request, dict(form), error=_e(exc)))
         diff = ctx.store.update(changes, ctx.config)
@@ -436,7 +440,7 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
         if any(f == 'log_level' for f, *_ in diff):
             logging.getLogger().setLevel(getattr(logging, level))
             _LOGGER.info("Protokoll-Detailgrad aus der Oberfläche: %s", level)
-        if any(f != 'log_level' for f, *_ in diff):
+        if any(f not in _HOT for f, *_ in diff):
             ctx.restart_reasons.add(_RESTART)
         return page(request, 'Einstellungen', settings_body(
             request, info='Gespeichert.' if diff else 'Keine Änderung.'))

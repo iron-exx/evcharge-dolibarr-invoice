@@ -171,7 +171,9 @@ def register(app: web.Application, ctx) -> None:
                 f'<div><label class="flabel">Status</label><select name="status"><option value="">alle</option>'
                 f'{status_opts}</select></div>'
                 '<button class="btn-2nd" type="submit">Anzeigen</button>'
-                f'<a class="btn-2nd" href="/sessions.csv?{query}">CSV herunterladen</a></form>'
+                f'<a class="btn-2nd" href="/sessions.csv?{query}">CSV herunterladen</a>'
+                f'<a class="btn-2nd" href="/report?month={month if month != "all" else datetime.now().strftime("%Y-%m")}">'
+                'Ladenachweis</a></form>'
                 f'<div class="hint">{len(rows)} Ladung(en) · abrechenbar {_kwh(total)} kWh</div>' + table)
         return _page(ctx, request, 'Übertragung an Dolibarr', body, active='sessions')
 

@@ -165,3 +165,11 @@ async def test_notify_settings_save_mask_and_test(env, monkeypatch):
     monkeypatch.setattr(notify, 'send', lambda cfg, subject, lines: sent.append(cfg) or [])
     r = await _post(c, '/settings', '/settings/notify', {**form, 'smtp_password': '', 'action': 'test'})
     assert 'Testnachricht verschickt' in await r.text() and sent[0]['smtp_password'] == 'smtp-geheim-1'
+
+
+async def test_tax_flat_price_hot_no_restart(env):
+    c = env['client']
+    r = await _post(c, '/settings', '/settings', {'log_level': 'INFO', 'tax_flat_price': '0,34'})
+    text = await r.text()
+    assert 'Gespeichert' in text and 'Neustart nötig' not in text
+    assert env['config']['tax_flat_price'] == 0.34, "sofort wirksam für den Ladenachweis"

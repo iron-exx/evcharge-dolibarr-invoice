@@ -25,6 +25,7 @@ from admin import validate
 from admin import web as admin_web
 from ocpp_server.id_tags import normalize_id_tag
 from session_manager import session_state
+from utils.charge_report import build_report
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1386,6 +1387,88 @@ def _build_daily_chart(rows, year, month):
     return f'<div class="chart">{svg}{legend}</div>'
 
 
+_REPORT_CSS = """
+.rep-table td,.rep-table th{font-size:12px;padding:6px 8px;text-align:left}
+.rep-table td.num,.rep-table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.rep-sum td{font-weight:700;border-top:2px solid var(--text)}
+.rep-note{font-size:11px;color:var(--muted);line-height:1.5;margin-top:10px}
+.rep-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-end}
+@media print{
+  .hdr,.nav,.no-print{display:none!important}
+  body,.page{background:#fff!important;padding:0!important;max-width:none!important}
+  .card{box-shadow:none!important;border:1px solid #999!important;break-inside:avoid;page-break-after:always}
+  .card:last-child{page-break-after:auto}
+}
+"""
+
+
+_MONTHS_LONG = ('Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September',
+                'Oktober', 'November', 'Dezember')
+
+
+def _fmt_eur(value) -> str:
+    return f'{value:,.2f}'.replace(',', ' ').replace('.', ',').replace(' ', '.') + ' €'
+
+
+def _fmt_kwh(value) -> str:
+    return '' if value is None else f'{value:,.3f}'.replace(',', ' ').replace('.', ',').replace(' ', '.')
+
+
+def _build_report_page(session_manager, config, month, who='', base_href=''):
+    """Ladenachweis zum Ausdrucken (Browser → Drucken → Als PDF speichern)."""
+    flat = float(config.get('tax_flat_price') or 0)
+    groups = [g for g in build_report(session_manager, month, flat) if not who or g['key'] == who]
+    months = [f'{y}-{m:02d}' for y, m in _db_months(session_manager.db_path)] or [month]
+    if month not in months:
+        months.insert(0, month)
+    y, m = int(month[:4]), int(month[5:7])
+    month_name = f'{_MONTHS_LONG[m - 1]} {y}'
+    method = (f'Strompreis-Pauschale {flat:.2f} €/kWh'.replace('.', ',') if flat else
+              'tatsächliche Stromkosten (Preis lt. Dolibarr-Spesenabrechnung)')
+    controls = (f'<div class="card no-print"><form method="GET" action="report" class="rep-head">'
+                f'<div><label class="flabel">Monat</label><select name="month">' +
+                ''.join(f'<option{" selected" if x == month else ""}>{x}</option>' for x in months) +
+                '</select></div><button class="btn-dl" type="submit">Anzeigen</button>'
+                f'<a class="btn-dl" href="report.csv?month={month}">CSV</a>'
+                '<button class="btn-dl" type="button" onclick="window.print()">Drucken / PDF</button></form>'
+                '<div class="rep-note">Je Mitarbeiter bzw. Karte eine Seite. Abrechnungsmethode: ' +
+                html.escape(method) + ' – einstellbar über <code>tax_flat_price</code> (2026: 0,34 €; 0 = tatsächliche '
+                'Kosten). Die Wahl gilt einheitlich für das ganze Kalenderjahr.</div></div>')
+    cards = ''
+    for g in groups:
+        body = ''
+        for r in g['rows']:
+            note = 'manuell erfasst – kein Zählernachweis' if r['manual'] else (
+                'von Dolibarr abgelehnt' if r['state'] == 'rejected' else '')
+            body += (f'<tr><td>{r["start"][8:10]}.{r["start"][5:7]}.{r["start"][:4]}</td>'
+                     f'<td>{r["start"][11:16]}–{(r["end"] or "")[11:16]}</td><td>{html.escape(r["wallbox"] or "")}</td>'
+                     f'<td class="num">{_fmt_kwh(r["meter_start"])}</td><td class="num">{_fmt_kwh(r["meter_end"])}</td>'
+                     f'<td class="num">{_fmt_kwh(r["kwh"])}</td><td>{html.escape(note)}</td></tr>')
+        amount = (f'<tr class="rep-sum"><td colspan="5">Erstattung ({html.escape(method)})</td>'
+                  f'<td class="num">{_fmt_eur(g["amount"])}</td><td></td></tr>' if g['amount'] is not None else '')
+        incomplete = (f'<div class="rep-note">⚠ {g["incomplete"]} unvollständige Ladung(en) in diesem Monat nicht '
+                      'enthalten – unter „Ladevorgänge“ nachtragen.</div>' if g['incomplete'] else '')
+        cards += f"""
+<div class="card">
+  <div class="rep-head"><div><div class="card-title" style="margin:0">Ladenachweis Dienstwagen · {html.escape(month_name)}</div>
+  <div style="font-size:18px;font-weight:700;margin-top:4px">{html.escape(g['name'])}</div></div>
+  <div class="rep-note" style="margin:0">Erstellt {datetime.now():%d.%m.%Y %H:%M} · ExpenseCharge</div></div>
+  <div class="tbl-wrap"><table class="rep-table">
+    <tr><th>Datum</th><th>Zeit</th><th>Wallbox</th><th class="num">Zähler Beginn (kWh)</th>
+        <th class="num">Zähler Ende (kWh)</th><th class="num">geladen (kWh)</th><th>Hinweis</th></tr>
+    {body}
+    <tr class="rep-sum"><td colspan="5">Summe {len(g['rows'])} Ladung(en)</td><td class="num">{_fmt_kwh(g['kwh'])}</td><td></td></tr>
+    {amount}
+  </table></div>{incomplete}
+  <div class="rep-note">Nachweis der geladenen Strommenge für die steuerfreie Erstattung nach § 3 Nr. 50 EStG
+  (BMF-Schreiben vom 11.11.2025). Zählerstände aus der Wallbox (Start-/Stoppzählerstand bzw. MeterValues);
+  Ladungen privat eingeordneter Karten sind nicht enthalten.</div>
+</div>"""
+    if not groups:
+        cards = '<div class="card"><p class="empty">Keine geschäftlichen Ladungen in diesem Monat.</p></div>'
+    return _base('history', f'<style>{_REPORT_CSS}</style>' + controls + cards, base_href=base_href)
+
+
 def _build_history_page(session_manager, year, month, base_href=''):
     months = _db_months(session_manager.db_path)
 
@@ -1467,7 +1550,10 @@ def _build_history_page(session_manager, year, month, base_href=''):
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px">
     <div class="card-title" style="margin:0">{_ICO_HIST} Verlauf</div>
-    <a href="{export_url}" class="btn-dl">{_ICO_DL} CSV exportieren</a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <a href="report?month={year}-{month:02d}" class="btn-dl">Ladenachweis</a>
+      <a href="{export_url}" class="btn-dl">{_ICO_DL} CSV exportieren</a>
+    </div>
   </div>
   <div class="month-tabs">{tabs_html}</div>
 
@@ -1643,6 +1729,34 @@ def create_app(session_manager, config, api_state):
             charset='utf-8',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'}
         )
+
+    # -- GET /report (Ladenachweis) ------------------------------------------
+    def _report_month(request):
+        month = request.rel_url.query.get('month', '')
+        return month if len(month) == 7 and month[4] == '-' and month.replace('-', '').isdigit() \
+            else datetime.now().strftime('%Y-%m')
+
+    async def handle_report(request):
+        return web.Response(content_type='text/html', charset='utf-8', text=_build_report_page(
+            session_manager, config, _report_month(request), request.rel_url.query.get('who', ''),
+            base_href=request.headers.get('X-Ingress-Path', '')))
+
+    async def handle_report_csv(request):
+        month = _report_month(request)
+        flat = float(config.get('tax_flat_price') or 0)
+        out = io.StringIO()
+        w = csv.writer(out, delimiter=';')
+        w.writerow(['Mitarbeiter/Karte', 'Datum', 'Beginn', 'Ende', 'Wallbox', 'Zähler Beginn (kWh)',
+                    'Zähler Ende (kWh)', 'geladen (kWh)', 'Hinweis'])
+        for g in build_report(session_manager, month, flat):
+            for r in g['rows']:
+                w.writerow([g['name'], r['start'][:10], r['start'][11:16], (r['end'] or '')[11:16], r['wallbox'],
+                            _fmt_kwh(r['meter_start']), _fmt_kwh(r['meter_end']), _fmt_kwh(r['kwh']),
+                            'manuell erfasst – kein Zählernachweis' if r['manual'] else ''])
+            w.writerow([g['name'], 'Summe', '', '', '', '', '', _fmt_kwh(g['kwh']),
+                        f'Erstattung {_fmt_eur(g["amount"])}' if g['amount'] is not None else ''])
+        return web.Response(body=('\ufeff' + out.getvalue()).encode('utf-8'), content_type='text/csv', charset='utf-8',
+                            headers={'Content-Disposition': f'attachment; filename="ladenachweis_{month}.csv"'})
 
     # -- GET /live.json (JSON-Endpoint für JS-Polling, flackerfrei) ----------
     async def handle_live_json(request):
@@ -1875,6 +1989,8 @@ def create_app(session_manager, config, api_state):
     app.router.add_get('/live.json', handle_live_json)
     app.router.add_get('/history',   handle_history)
     app.router.add_get('/export',    handle_export)
+    app.router.add_get('/report',    handle_report)
+    app.router.add_get('/report.csv', handle_report_csv)
     app.router.add_get('/system',       handle_system_page)
     app.router.add_get('/system.json',  handle_system_json)
     app.router.add_get('/tags',         handle_tags_page)

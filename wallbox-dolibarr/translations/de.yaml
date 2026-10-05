@@ -182,6 +182,15 @@ configuration:
       Wert stehen und bringt die Zustandserkennung durcheinander. Mit einem
       Wert größer 0 setzt ExpenseCharge den Tag nach dieser Zeit selbst auf
       "kein Tag" zurück. 1.0 ist ein guter Startwert.
+  tax_flat_price:
+    name: "Strompreis-Pauschale für den Ladenachweis (€/kWh)"
+    description: >-
+      Nur für den Ladenachweis (Verlauf → Ladenachweis). Für die
+      Strompreis-Pauschale nach BMF-Schreiben vom 11.11.2025 den Wert des
+      Jahres eintragen (2026: 0.34) — dann zeigt der Nachweis den
+      Erstattungsbetrag. Leer oder 0 = tatsächliche Kosten (Preis aus Dolibarr).
+      Den Preis, mit dem Dolibarr abrechnet, dort ebenfalls setzen.
+
   min_session_kwh:
     name: "Mindest-kWh pro Session"
     description: >-

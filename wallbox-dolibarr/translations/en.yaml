@@ -179,6 +179,15 @@ configuration:
       last COMPLETED charging session. The value then sticks and confuses
       state detection. With a value above 0, ExpenseCharge resets the tag to
       "no tag" itself after that time. 1.0 is a good starting point.
+  tax_flat_price:
+    name: "Flat electricity price for the charging report (€/kWh)"
+    description: >-
+      Only used by the charging report (History → Charging report). For the
+      German flat rate (BMF letter of 2025-11-11) enter the value of the year
+      (2026: 0.34) and the report shows the reimbursement amount. Empty or 0 =
+      actual costs (price from Dolibarr). Set the price Dolibarr bills with
+      there as well.
+
   min_session_kwh:
     name: "Minimum kWh per session"
     description: >-
