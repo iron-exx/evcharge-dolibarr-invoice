@@ -1,221 +1,196 @@
-# ExpenseCharge
+<p align="center">
+  <img src="docs/branding/banner.png" alt="ExpenseCharge — Ladevorgänge. Spesen. Abgerechnet." width="820">
+</p>
 
-Ladevorgänge. Spesen. Abgerechnet.
+<p align="center">
+  <b>Dienstwagen an der Firmen-Wallbox laden — und die Ladung steht automatisch in der Spesenabrechnung.</b><br>
+  RFID-Karte vorhalten, laden, fertig: ExpenseCharge erfasst jeden Ladevorgang und schreibt ihn
+  direkt als Position in die <b>Dolibarr</b>-Spesenabrechnung des richtigen Mitarbeiters.
+</p>
 
-RFID-basierte Abrechnung von Wallbox-Ladevorgängen — Sessions werden vom Home-Assistant-Addon **direkt in die Dolibarr-Spesenabrechnung** des jeweiligen Mitarbeiters geschrieben.
+<p align="center">
+  <img src="https://img.shields.io/badge/Addon-2.0.0-22c55e" alt="Addon 2.0.0">
+  <img src="https://img.shields.io/badge/Dolibarr--Modul-2.3.6-14b8a6" alt="Dolibarr-Modul 2.3.6">
+  <img src="https://img.shields.io/badge/Dolibarr-20–22-0f766e" alt="Dolibarr 20–22">
+  <img src="https://img.shields.io/badge/OCPP-1.6J-0e7490" alt="OCPP 1.6J">
+  <img src="https://img.shields.io/badge/Home%20Assistant-Addon-1e293b" alt="Home Assistant Addon">
+  <img src="https://img.shields.io/badge/Docker-Standalone-1e293b" alt="Docker Standalone">
+  <img src="https://img.shields.io/badge/Lizenz-proprietär-64748b" alt="Lizenz proprietär">
+</p>
 
+<p align="center">
+  <a href="#-was-es-kann">Funktionen</a> ·
+  <a href="#-welche-variante-passt">Varianten</a> ·
+  <a href="#-installation">Installation</a> ·
+  <a href="#-dokumentation">Dokumentation</a> ·
+  <a href="#-sicherheit--datenschutz">Sicherheit</a>
+</p>
 
+---
 
-![Dolibarr-Modul](https://img.shields.io/badge/Dolibarr--Modul-2.2.0-blue)
-![HA-Addon](https://img.shields.io/badge/HA--Addon-2.0.0-blue)
-![Dolibarr](https://img.shields.io/badge/Dolibarr-20.x--22.x-green)
-![Python](https://img.shields.io/badge/Python-3.12+-green)
-![License](https://img.shields.io/badge/License-Proprietary-red)
+## So funktioniert's
 
-
-
-
-<img width="1254" height="1254" alt="cover" src="https://github.com/user-attachments/assets/da61923e-c9f7-47de-9d21-eebe6b6c36a9" />
-
-
-
-
-
-## Funktionsweise
-
+```mermaid
+flowchart LR
+    K([🪪 RFID-Karte]) --> W[🔌 Wallbox]
+    W -- "OCPP · Alfen-API · Modbus · HA-Sensoren" --> E["⚡ ExpenseCharge<br/>prüft Karte · misst kWh<br/>puffert lokal"]
+    E -- "geschäftlich" --> D[("📒 Dolibarr<br/>Spesenabrechnung<br/>des Mitarbeiters")]
+    E -. "privat: bleibt lokal" .-> L[(🗄️ lokaler Verlauf)]
 ```
-┌─────────────────┐                ┌──────────────────────┐
-│  Home Assistant │   POST JSON    │      Dolibarr        │
-│  Addon (Python) │ ─────────────► │  receive.php (PHP)   │
-│                 │   DOLAPIKEY    │                      │
-│  - RFID-Reader  │                │  ① RFID→User Lookup  │
-│  - Energie-Zähl │                │  ② Spesenabrechnung  │
-│  - SQLite-Buffer│                │     des Monats       │
-│  - Retry-Loop   │                │     finden / anlegen │
-└─────────────────┘                │  ③ Zeile in          │
-                                   │     expensereport_det│
-                                   └──────────────────────┘
-```
 
-Jede Ladung landet sofort als Position im Spesenreport des Mitarbeiters. Pro Monat und Mitarbeiter wird automatisch ein Draft-Report erstellt oder ein bestehender erweitert. Es gibt **keinen Cronjob**, **keine eigene Sessions-Tabelle** und **keine separate Abrechnungsseite** — alles steckt nativ in Dolibarrs Spesenabrechnungsmodul.
+1. **Karte vorhalten** — ExpenseCharge prüft, ob sie laden darf (bei OCPP: unbekannte Karten laden nicht).
+2. **Laden** — Start, Ende und Zählerstände kommen direkt von der Wallbox.
+3. **Abgerechnet** — die Ladung landet als Zeile „Wallbox 1: 12.50 kWh“ in der Spesenabrechnung
+   des Monats; Dolibarr legt den Entwurf bei Bedarf selbst an und rechnet mit dem hinterlegten €/kWh-Preis.
 
-## Features
+Kein Cronjob, keine eigene Abrechnungsseite, kein Export/Import — alles landet nativ im
+Spesenmodul von Dolibarr. Ist Dolibarr mal nicht erreichbar, bleibt nichts liegen: Ladungen
+werden lokal gepuffert und nachgereicht.
 
-### Home Assistant Addon
-- RFID-Authentifizierung mit SHA-256-Hash (kein Klartext-Speichern)
-- Whitelist-Prüfung + 7s-Debounce gegen Doppellesungen
-- Multi-Wallbox-Support
-- SQLite-Buffer mit WAL-Mode für Crash-Recovery
-- Restart-Recovery: laufende Sessions werden beim Neustart behandelt
-- Auto-Retry mit Exponential-Backoff bei API-Fehlern
-- Web-UI (Ingress): manuelle Sessions, History, CSV-Export
-- **Kartenverwaltung mit Lernmodus**: Karte an die Wallbox halten, in der Oberfläche benennen und einordnen — **geschäftlich** (wird abgerechnet) oder **privat** (bleibt lokal, erreicht Dolibarr nie)
+## 📸 Einblick
 
-### Dolibarr-Modul
-- Direkter Insert in `llx_expensereport` / `llx_expensereport_det` als Ausgabentyp `TF_OTHER` (Fallback: erste aktive Kategorie)
-- **Multi-RFID pro Mitarbeiter**: beliebig viele Karten pro Benutzer, je mit eigenem Preis/Kostenstelle/Label
-- Pro-Tag-Preis (€/kWh) oder globaler Default
-- Duplikat-Schutz: Abgleich Mitarbeiter + Ladeende-Zeitstempel + Wallbox-ID gegen bereits vorhandene Spesenzeilen
-- RFID-Zuordnung endgültig löschbar (kein Soft-Delete/Reaktivierung)
-- Auth per gemeinsamem API-Token (Header `DOLAPIKEY`), RFID nur als SHA-256-Hash gespeichert (Dolibarr 20+)
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/erfassen.png" alt="Übersicht mit laufendem Ladevorgang"><br><sub><b>Übersicht</b> — abgerechnete kWh, Tagesstreifen, laufende Ladung live</sub></td>
+    <td width="50%"><img src="docs/screenshots/wallboxen.png" alt="Wallbox-Verwaltung"><br><sub><b>Wallboxen</b> — Live-Zustand, wartende Wallboxen per Klick übernehmen</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/ladevorgaenge.png" alt="Ladevorgänge und Übertragung"><br><sub><b>Ladevorgänge</b> — Übertragungsstatus, Filter, CSV, Nachbearbeitung</sub></td>
+    <td><img src="docs/screenshots/karten.png" alt="Kartenverwaltung"><br><sub><b>Karten</b> — Lernmodus, geschäftlich oder privat</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/wallbox-detail.png" alt="Wallbox-Details mit Fernbefehlen"><br><sub><b>Wallbox-Details</b> — Fernbefehle, Konfiguration, OCPP-Protokoll</sub></td>
+    <td><img src="docs/screenshots/verlauf.png" alt="Monatsverlauf"><br><sub><b>Verlauf</b> — Monatsauswertung geschäftlich/privat</sub></td>
+  </tr>
+</table>
 
-## Betriebsvarianten
+<p align="center"><img src="docs/screenshots/mobil.png" alt="Ansicht auf dem Smartphone" width="260"><br><sub>Funktioniert auch auf dem Smartphone</sub></p>
 
-ExpenseCharge läuft auf zwei Wegen — beide werden unterstützt:
+## ✨ Was es kann
 
-| | Als Home-Assistant-Addon | Standalone in Docker |
+### Erfassen — herstellerunabhängig
+
+| Betriebsart | Für wen | Besonderheit |
 |---|---|---|
-| Wofür | HA ist schon im Haus; Sensoren sollen genutzt werden | minimal, z.B. auf einem Raspberry Pi; kein HA vorhanden oder gewollt |
-| Betriebsarten | `ha_sensors` (HA-Sensoren) **und** `ocpp` | **nur** `ocpp` (die Wallbox verbindet sich direkt) |
-| Einrichtung | Addon-Store, Konfiguration in der HA-Oberfläche | `docker compose up -d` mit `.env` |
-| Web-UI | HA-Ingress, durch HA-Login geschützt | nur an `127.0.0.1` gebunden — kein eingebauter Schutz |
+| **OCPP 1.6J** (`ocpp`) | alle Wallboxen mit OCPP — Alfen, ABL, Keba, go-e, Mennekes, Easee, Zaptec, … | ExpenseCharge ist der Zentralserver: **echte Zugriffskontrolle**, mehrere Wallboxen in einer Instanz, Wallbox puffert offline |
+| **Alfen HTTPS-API** (`alfen_http`) | Alfen Eve | Zähler, Zustand und Karte aus einer Quelle — **ohne** den OCPP-Slot zu belegen, parallel zum Cloud-Backend |
+| **Modbus TCP** (`modbus`) | Wallboxen mit Modbus | direkt abgefragt, frei konfigurierbare Registerkarte |
+| **Home-Assistant-Sensoren** (`ha_sensors`) | alles, was HA schon kennt | Karte, Zähler und Zustand aus HA-Entitäten; auch Wallboxen ohne eigenen Zähler (z.B. mit Shelly EM) |
 
-Standalone-Anleitung: [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant)
+### Abrechnen — direkt in Dolibarr
+- Jede geschäftliche Ladung wird eine Position in der **Spesenabrechnung des Mitarbeiters**, im Monat des Ladeendes
+- Mehrere Karten pro Mitarbeiter, Preis je Karte oder global (€/kWh)
+- **Duplikatschutz**: dieselbe Ladung wird nie doppelt abgerechnet, auch bei Wiederholungen
+- Ladungen werden lokal gepuffert (SQLite) und bei Ausfall automatisch nachgereicht
+- Unplausible Messungen werden als **unvollständig** markiert statt falsch abgerechnet — und lassen sich von Hand korrigieren
 
-### Datenquellen
+### Karten — geschäftlich oder privat
+- **Lernmodus**: Karte an die Wallbox halten, im Browser benennen und einordnen
+- **Geschäftlich** wird abgerechnet, **privat** lädt, bleibt aber lokal und erreicht Dolibarr nie
+- Karten auch manuell per ID anlegen; Mitarbeiternamen aus Dolibarr als Vorschlag
+- Karten-IDs werden nur als SHA-256-Hash gespeichert, nie im Klartext geloggt
 
-Woher die Ladevorgänge kommen, bestimmt `session_source`:
+### Verwalten — komplett im Browser
+Ohne Home Assistant (standalone) ist die Web-Oberfläche zugleich die Verwaltung — keine JSON-Datei von Hand:
 
-| | `ha_sensors` (Default) | `alfen_http` | `ocpp` | `modbus` |
-|---|---|---|---|---|
-| Braucht Home Assistant | ja | **nein** | nein | nein |
-| Zugriffskontrolle | nein | nein | **ja** | nein |
-| Karten-ID | aus dem HA-Sensor | **aus dem Transaktions-Log** | aus der OCPP-Transaktion | nur mit Tag-Register |
-| Parallel zum Cloud-Backend | ja | **ja** | nein (Slot belegt) | **ja** |
-| Hersteller | alle | **nur Alfen** | alle mit OCPP 1.6J | alle mit Modbus TCP |
-| Einrichtung | Sensoren zuordnen | IP und Zugangsdaten | URL in der Wallbox | Registeradressen |
-
-Für eine **Alfen** ist `alfen_http` die beste Wahl: Zähler, Zustand und Karte aus
-einer Quelle, ohne HA und ohne den OCPP-Backend-Slot zu belegen.
-
-## Voraussetzungen
-
-| Komponente | Version |
+| Bereich | Was geht |
 |---|---|
-| Dolibarr | 20.x – 22.x |
-| Home Assistant | 2024.x+ mit Supervisor — **nur für die Addon-Variante** |
-| Docker | für die Standalone-Variante; Raspberry Pi braucht ein 64-Bit-OS |
-| Python | 3.12+ (im Container mitgeliefert) |
+| **Ersteinrichtung** | Assistent: Admin-Konto, Dolibarr (mit Verbindungstest), erste Wallbox, Karten |
+| **Wallboxen** | anlegen mit Passwort-Generator, Live-Zustand, unbekannte Wallboxen übernehmen, **Fernbefehle** (Laden starten/beenden, entriegeln, Neustart, …), Wallbox-Konfiguration lesen/ändern, empfohlene Einstellungen, OCPP-Protokoll |
+| **Ladevorgänge** | Filter nach Monat/Status, CSV-Export, Übertragungsstatus, „Jetzt übertragen“, Unvollständiges abschließen oder verwerfen |
+| **Einstellungen** | Betriebsparameter, Admin-Passwort, **Backup & Wiederherstellung** per Klick, Systeminfo |
+| **Protokoll** | jede Änderung mit Benutzer und Zeit, System-Log zum Filtern und Herunterladen |
 
-## Schnellinstallation
+Anmeldung mit eigenem Admin-Konto, Schutz gegen CSRF und Passwort-Raten, Geheimnisse nur maskiert.
 
-### 1. Dolibarr-Modul
+## 🧭 Welche Variante passt?
 
-1. Aktuelle `module_wallboxbilling-*.zip` im Dolibarr-Modulmanager hochladen
-2. Modul **aktivieren**
-3. Unter „ExpenseCharge Konfiguration":
-   - Default-Preis pro kWh setzen
-   - API-Token (Shared Secret) setzen — muss identisch im HA-Addon (`api_token`) stehen
-   - RFID-Karten pro Mitarbeiter zuordnen (RFID-Verwaltung-Tab)
+| | 🏠 Home-Assistant-Addon | 🐳 Standalone (Docker) |
+|---|---|---|
+| **Ideal, wenn** | Home Assistant schon läuft | kein HA vorhanden oder gewollt — z.B. Proxmox-LXC, Raspberry Pi, Server |
+| **Betriebsarten** | alle vier | `ocpp`, `alfen_http`, `modbus` |
+| **Einrichtung** | Addon-Store, Konfiguration in HA | im Browser per Assistent |
+| **Oberfläche** | HA-Ingress (HA-Login) | eigene Verwaltung mit Admin-Konto |
+| **Updates** | über den Addon-Store | `git pull` + neu bauen |
 
-### 2. Home Assistant Addon
+## 🚀 Installation
 
-1. Repository hinzufügen: `https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge`
-2. Addon „ExpenseCharge" installieren
-3. Konfiguration:
-   ```yaml
-   wallbox_id: alfen_eve
-   rfid_whitelist:
-     - "A1B2C3D4"
-   sensor_rfid:   sensor.alfen_eve_tag_socket_1
-   sensor_energy: sensor.alfen_eve_meter_reading_socket_1
-   sensor_state:  sensor.alfen_eve_main_state_socket_1
-   api:
-     dolibarr_url: "https://erp.example.com"
-     api_token: "<gemeinsames API-Token, identisch mit Dolibarr-Modulkonfiguration>"
-     transmit_interval: 300
-   ```
+Beide Varianten brauchen zuerst das **Dolibarr-Modul**.
 
-   > Das obige Beispiel nutzt das Default-Profil `wallbox_profile: alfen_eve`. Für andere
-   > Hersteller, einen vorgeschalteten Zähler (z.B. Shelly EM) oder Wallboxen ganz ohne
-   > eigenen Zähler gibt es `wallbox_profile: custom` mit frei kombinierbarem Auth-Modus
-   > und Zustand-Erkennung — siehe [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#wallbox-profile-herstellerunabhängige-konfiguration).
+### 1 · Dolibarr-Modul
 
-### 3. Addon-Web-UI
+1. `module_wallboxbilling-*.zip` aus diesem Repository im Dolibarr-Modulmanager hochladen und aktivieren
+2. Unter *ExpenseCharge Konfiguration*: Preis pro kWh und **API-Token** setzen
+3. RFID-Karten den Mitarbeitern zuordnen (Tab *RFID-Verwaltung*)
 
-Zwei Tabs im Ingress:
+### 2a · Home-Assistant-Addon
 
-- **⚡ Erfassen** — Hauptseite mit:
-  - **Live-Block oben** (sofern Sensoren liefern): aktueller Zählerstand, Wallbox-Status als farbiger Chip (grün=Charging, grau=Idle, rot=Faulted), laufende Sessions mit RFID-Prefix, Start-Zeit, Dauer und Live-kWh-Delta. **Flackerfreies JS-Polling** (`fetch('live.json')` alle 5 s)
-  - Manuelles Erfassen einer Ladung
-  - „Jetzt an Dolibarr übertragen" Button
-- **📋 Verlauf** — abgeschlossene Sessions pro Monat, CSV-Export
+1. *Einstellungen → Add-ons → Add-on-Store → ⋮ → Repositories* →
+   `https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge`
+2. **ExpenseCharge** installieren, Dolibarr-URL und API-Token eintragen, Betriebsart wählen, starten
+3. Oberfläche über *Benutzeroberfläche öffnen* (oder „In Seitenleiste anzeigen“)
 
-## Datenfluss im Detail
+### 2b · Standalone mit Docker
 
-### Betriebsart `ha_sensors` (Default, bisheriges Verhalten)
+```bash
+git clone -b feat/ocpp-central-system https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
+cd ExpenseCharge/wallbox-dolibarr
+mkdir -p data && cp options.standalone.example.json data/options.json
+echo "WEB_BIND=0.0.0.0" > .env
+docker compose up -d --build
+docker compose logs expensecharge | grep Einrichtungscode
+```
 
-1. **RFID gelesen** (`sensor.alfen_eve_tag_socket_1`): wechselt von `No Tag` auf eine Tag-ID (z.B. `A1B2C3D4`)
-2. **Whitelist + Debounce**: 7-Sekunden-Sperre gegen Doppellesungen
-3. **Session starten**: lokale SQLite speichert `start_time` + `start_energy_kwh` (Zählerstand aus `sensor.alfen_eve_meter_reading_socket_1`)
-4. **Session beenden** — getriggert durch:
-   - Wallbox-Status (`sensor.alfen_eve_main_state_socket_1`) wechselt auf `Available`, `Finishing`, `Stopped`, `Faulted`, … (substring-Match auf `charging`/`idle`/etc.), **oder**
-   - RFID wechselt zurück auf `No Tag` (Karte abgezogen)
-   - `total_kwh = end_zähler − start_zähler`
-5. **Ghost-Session-Filter**: Sessions unter `min_session_kwh` (Default 0.05 kWh) werden als `discarded` markiert und NICHT übertragen — passiert wenn die Karte gehalten wird ohne dass eine Ladung tatsächlich beginnt
-6. **Transmit** (alle 5 min oder sofort):
-   - POST an `receive.php` mit `{rfid_hash, wallbox_id, start_time, end_time, kwh}`
-   - PHP-Endpoint: RFID→User → Spesenabrechnung suchen/anlegen → Zeile rein
-   - Bei Erfolg: `transmitted_at` lokal gesetzt
-   - Bei `HTTP 404 RFID not registered`: Admin muss die Karte erst zuordnen, Addon retried automatisch
-   - Bei `HTTP 401 Unauthorized`: API-Token in Dolibarr und Addon stimmen nicht überein
+Dann `http://<Server-IP>:8099/` öffnen — der Assistent führt durch den Rest.
+Schritt für Schritt mit Proxmox-Container, Sicherung und Update:
+**[INSTALL.md → Standalone](INSTALL.md#35--variante-standalone-docker-ohne-home-assistant-zb-proxmox-lxc)**
 
-### Betriebsart `ocpp` (ab Addon 2.0.0)
+> Die Funktionen ab Version 2.0.0 (OCPP, Alfen-API, Verwaltung im Browser) liegen derzeit im
+> Branch `feat/ocpp-central-system`.
 
-Mit `session_source: ocpp` ist das Addon **selbst OCPP-1.6J-Zentralserver**. Die Wallbox
-verbindet sich direkt per WebSocket (`ws://<HA-IP>:<Port>/<Charge-Point-ID>`), statt dass
-HA-Sensoren ausgewertet werden. Damit gibt es echte Zugriffskontrolle — **unbekannte Karten
-laden nicht** —, die Zählerstände kommen unmittelbar aus `meterStart`/`meterStop` der
-Wallbox, und mehrere Wallboxen laufen gleichzeitig in einer Instanz. Eine HACS-Integration
-ist dann nicht mehr nötig.
+### 3 · Wallbox anbinden
 
-Einschränkung: eine Wallbox kennt nur **ein** OCPP-Backend. Wer bereits ein Cloud-Backend
-nutzt, müsste darauf verzichten. `ha_sensors` bleibt unverändert verfügbar.
+Per OCPP in acht Schritten bis zur ersten abgerechneten Ladung:
+**[docs/OCPP-WALLBOX-ANBINDEN.md](docs/OCPP-WALLBOX-ANBINDEN.md)**
 
-Einrichtung, Herstellertabelle und Sicherheitshinweise:
-[wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
+## 📚 Dokumentation
 
-## Sicherheit & Compliance
+| Dokument | Inhalt |
+|---|---|
+| [INSTALL.md](INSTALL.md) | Installation komplett: Dolibarr-Modul, HA-Addon, Standalone/Proxmox, Funktionsprüfung, Fehlerbehebung, Upgrade |
+| [docs/OCPP-WALLBOX-ANBINDEN.md](docs/OCPP-WALLBOX-ANBINDEN.md) | Wallbox per OCPP anbinden, Schritt für Schritt, mit Alfen-Einstellungen und Fehlerbildern |
+| [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md) | Referenz: alle Betriebsarten (OCPP, Alfen-API, Modbus, HA-Sensoren), Wallbox-Profile, Karten, Standalone-Betrieb, Konfiguration |
 
-- ✅ RFID nur als SHA-256-Hash persistiert, Klartext nie gespeichert oder angezeigt (Datensparsamkeit, DSGVO)
-- ✅ Gemeinsames API-Token (Header `DOLAPIKEY`), im HA-Secret bzw. Dolibarr-Konfiguration hinterlegt
-- ✅ SQL-Injection-Schutz via `$db->escape()`
-- ✅ Schutz gegen versehentliches Kapern eines Tags durch einen anderen Benutzer
-- ✅ Spesenabrechnungen unterliegen Dolibarrs Standard-Audit-Trail
-- ✅ Modul-Deinstallation droppt **keine** Tabellen (`llx_wallbox_rfid` bleibt erhalten)
+## 🔒 Sicherheit & Datenschutz
 
-## Projektstruktur
+- **Karten-IDs** nur als SHA-256-Hash gespeichert; Klartext nie im Log, nur flüchtig im Lernmodus
+- **Private Ladungen** erreichen Dolibarr nie — geprüft wird die aktuelle Einordnung beim Senden
+- **OCPP** mit Passwort je Wallbox (Basic Auth, Security Profile 1); unbekannte Wallboxen und Karten werden abgewiesen
+- **Verwaltung** nur angemeldet: gehashte Passwörter, Sperre nach Fehlversuchen, CSRF-Schutz, Änderungsprotokoll
+- **Dolibarr** über ein gemeinsames API-Token; Modul-Deinstallation löscht keine Daten
+- Empfohlen: Web-UI und OCPP-Port nur im LAN/VPN, nie direkt ins Internet
+
+## 🗂️ Projektstruktur
 
 ```
 ExpenseCharge/
-├── Dolibarr/htdocs/custom/wallboxbilling/   # Dolibarr-Modul
-│   ├── receive.php                          # POST-Endpoint (Token-Auth)
-│   ├── index.php                            # Sessions-Übersicht (Skeleton)
-│   ├── admin/admin.php                      # Konfiguration + RFID-Verwaltung
-│   ├── class/api_wallboxbilling.class.php   # REST-API (Dolibarr Web-Services)
-│   ├── core/modules/modWallboxbilling.class.php
-│   └── langs/de_DE/wallboxbilling.lang
-├── wallbox-dolibarr/                        # Addon bzw. Standalone-Container
-│   ├── main.py                              # Hauptloop + Websocket
-│   ├── session_manager.py                   # SQLite + RFID
-│   ├── api_client.py                        # Dolibarr POST
-│   ├── web_server.py                        # Ingress UI
-│   ├── tag_learning.py                      # Lernmodus (flüchtiger Klartext)
-│   ├── tag_release.py                       # haftenden RFID-Wert zurücksetzen
-│   ├── utils/hash.py                        # SHA-256
-│   ├── icon.png / logo.png                  # Addon-Branding
-│   ├── Dockerfile
-│   ├── docker-compose.yml                   # Standalone-Betrieb ohne HA
-│   ├── .env.example                         # Konfigurationsvorlage dafür (Umgebungsvariablen)
-│   ├── options.standalone.example.json      # alternativ: Konfiguration als JSON
-│   └── config.yaml
-└── module_wallboxbilling-*.zip              # Build-Artefakte der Dolibarr-Module
+├── Dolibarr/htdocs/custom/wallboxbilling/   Dolibarr-Modul (receive.php, employees.php, Konfiguration)
+├── wallbox-dolibarr/                        Addon bzw. Standalone-Container
+│   ├── main.py                              Start, Betriebsarten, Übertragung
+│   ├── ocpp_server/                         OCPP-1.6J-Zentralserver
+│   ├── alfen_source/ · modbus_source/       weitere Datenquellen
+│   ├── admin/                               Verwaltungsoberfläche (standalone)
+│   ├── web_server.py                        Web-Oberfläche
+│   ├── session_manager.py                   SQLite-Puffer, Karten, Ladevorgänge
+│   ├── api_client.py                        Übertragung an Dolibarr
+│   ├── docker-compose.yml · Dockerfile      Standalone-Betrieb
+│   └── tests/                               Testsuite
+├── docs/                                    Anleitungen, Screenshots, Branding
+├── INSTALL.md                               Installationsanleitung
+└── module_wallboxbilling-*.zip              Dolibarr-Modul zum Hochladen
 ```
 
-## Lizenz
+## Lizenz & Support
 
-Proprietär — alle Rechte vorbehalten. Siehe `LICENSE`.
-
-## Support
-
+Proprietär — alle Rechte vorbehalten, siehe [LICENSE](LICENSE).
 GitHub: [systemwerk-GmbH-Co-KG/ExpenseCharge](https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge)
