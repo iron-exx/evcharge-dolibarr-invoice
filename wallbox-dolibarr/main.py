@@ -53,6 +53,7 @@ import env_config
 from env_config import apply_env_overrides
 from admin import is_standalone
 from admin import logs as admin_logs
+from admin import notify as admin_notify
 from admin import system as admin_system
 from admin.web import AdminContext, new_setup_code
 from placeholders import find_placeholders
@@ -1152,6 +1153,7 @@ async def main():
         api_state['admin'] = build_admin_context()
         warn_if_web_exposed(api_state['admin'].accounts.exists())
         asyncio.create_task(admin_system.backup_loop(data_dir()))   # nächtliches Backup nach data/backups/
+        asyncio.create_task(admin_notify.notify_loop(api_state['admin']))   # E-Mail/Webhook bei Problemen
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")

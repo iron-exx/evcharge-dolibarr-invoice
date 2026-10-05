@@ -143,3 +143,25 @@ def test_daily_backup_rotation(tmp_path):
     assert len(files) == 14 and files[0] == 'expensecharge-20261003.zip' and files[-1] == 'expensecharge-20261016.zip'
     assert oct((tmp_path / 'backups' / files[0]).stat().st_mode & 0o777) == '0o600', "enthält Geheimnisse"
     assert system.backup_status(str(tmp_path))['count'] == 14
+
+
+async def test_notify_settings_save_mask_and_test(env, monkeypatch):
+    from admin import notify
+    c = env['client']
+    form = {'email_to': 'fuhrpark@firma.de', 'smtp_host': 'mail.firma.de', 'smtp_port': '587', 'smtp_tls': 'starttls',
+            'smtp_user': 'ec', 'smtp_password': 'smtp-geheim-1', 'smtp_from': '', 'webhook_url': '',
+            'offline_hours': '3', 'pending_hours': '6'}
+    r = await _post(c, '/settings', '/settings/notify', {**form, 'email_to': 'kaputt', 'action': 'save'})
+    assert 'keine gültige Adresse' in await r.text()
+    r = await _post(c, '/settings', '/settings/notify', {**form, 'action': 'save'})
+    assert 'gespeichert' in await r.text()
+    saved = _saved(env)['notify']
+    assert saved['email_to'] == 'fuhrpark@firma.de' and saved['offline_hours'] == 3
+    page = await (await c.get('/settings')).text()
+    assert 'smtp-geheim-1' not in page and 'smtp-geheim-1' not in (env['dir'] / 'audit.log').read_text()
+    await _post(c, '/settings', '/settings/notify', {**form, 'smtp_password': '', 'action': 'save'})
+    assert _saved(env)['notify']['smtp_password'] == 'smtp-geheim-1', "leer = behalten"
+    sent = []
+    monkeypatch.setattr(notify, 'send', lambda cfg, subject, lines: sent.append(cfg) or [])
+    r = await _post(c, '/settings', '/settings/notify', {**form, 'smtp_password': '', 'action': 'test'})
+    assert 'Testnachricht verschickt' in await r.text() and sent[0]['smtp_password'] == 'smtp-geheim-1'

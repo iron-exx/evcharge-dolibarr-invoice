@@ -1,0 +1,94 @@
+"""Benachrichtigungen: was ist ein Problem, jedes nur einmal melden, E-Mail und Webhook."""
+import json
+import os
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pytest  # noqa: E402
+
+from admin import notify  # noqa: E402
+from admin.web import AdminContext  # noqa: E402
+from session_manager import SessionManager  # noqa: E402
+
+
+class FakeServer:
+    def __init__(self, live):
+        self.live, self.charge_points = live, {}
+
+
+def _session(sm, status, hours_ago, error=None):
+    t = (datetime.now() - timedelta(hours=hours_ago)).isoformat(timespec='seconds')
+    conn = sqlite3.connect(sm.db_path)
+    cur = conn.execute("INSERT INTO sessions (rfid_hash, wallbox_id, start_time, end_time, total_kwh, status, created_at,"
+                       " transmit_error) VALUES (?, 'garage', ?, ?, 5, ?, ?, ?)", ('a' * 64, t, t, status, t, error))
+    conn.commit()
+    conn.close()
+    return cur.lastrowid
+
+
+@pytest.fixture()
+def ctx(tmp_path):
+    sm = SessionManager(db_path=str(tmp_path / 'sessions.db'))
+    old = (datetime.now() - timedelta(hours=5)).isoformat(timespec='seconds')
+    live = {'ACE1': {'connected': False, 'last_seen': old}, 'ACE2': {'connected': True, 'last_seen': old}}
+    config = {'ocpp_charge_points': [{'id': 'ACE1', 'name': 'Wallbox 1'}, {'id': 'ACE2'}, {'id': 'NEU'}],
+              'notify': {'offline_hours': 2, 'pending_hours': 6}}
+    return AdminContext(data_dir=str(tmp_path), config=config, session_manager=sm, ocpp=lambda: FakeServer(live))
+
+
+def test_collect_alerts(ctx):
+    sm = ctx.session_manager
+    rejected = _session(sm, 'completed', 1, error='HTTP 404: RFID not registered in Dolibarr')
+    incomplete = _session(sm, 'incomplete', 1)
+    _session(sm, 'completed', 8)       # wartet seit 8 h
+    alerts = notify.collect_alerts(ctx)
+    assert f'rejected:{rejected}' in alerts and f'incomplete:{incomplete}' in alerts
+    assert 'pending' in alerts and 'offline:ACE1' in alerts
+    assert 'offline:ACE2' not in alerts, "verbunden"
+    assert 'offline:NEU' not in alerts, "noch nie verbunden = noch nicht montiert, kein Alarm"
+    assert 'backup' in alerts, "noch nie ein automatisches Backup"
+    assert 'Wallbox 1' in alerts['offline:ACE1']
+
+
+def test_each_problem_reported_once_until_resolved(ctx):
+    sent = []
+    current = {'a': 'Problem A'}
+    send = lambda subject, lines: sent.append(lines)
+    notify.check_and_notify(ctx, send, alerts=current)
+    notify.check_and_notify(ctx, send, alerts=current)
+    assert sent == [['Problem A']], "nur einmal"
+    notify.check_and_notify(ctx, send, alerts={})                       # behoben
+    notify.check_and_notify(ctx, send, alerts={'a': 'Problem A'})       # wieder da
+    assert len(sent) == 2
+    state = json.loads((ctx.data_dir and open(os.path.join(ctx.data_dir, 'notify.json')).read()))
+    assert state == ['a'], "übersteht Neustarts"
+
+
+def test_email_and_webhook(monkeypatch):
+    mails, posts = [], []
+
+    class SMTP:
+        def __init__(self, host, port, timeout): mails.append(('connect', host, port))
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def starttls(self, context=None): mails.append('tls')
+        def login(self, u, p): mails.append(('login', u))
+        def send_message(self, msg): mails.append(('to', msg['To'], msg['Subject'], msg.get_content()))
+
+    monkeypatch.setattr(notify.smtplib, 'SMTP', SMTP)
+    monkeypatch.setattr(notify.requests, 'post', lambda url, json, timeout: posts.append((url, json)) or
+                        type('R', (), {'raise_for_status': lambda self: None})())
+    cfg = {'email_to': 'admin@firma.de', 'smtp_host': 'mail.firma.de', 'smtp_port': 587, 'smtp_user': 'ec',
+           'smtp_password': 'geheim', 'smtp_from': 'ec@firma.de', 'smtp_tls': 'starttls',
+           'webhook_url': 'https://n8n.firma.de/hook'}
+    errors = notify.send(cfg, 'ExpenseCharge: 1 Problem', ['Wallbox 1 offline'])
+    assert errors == []
+    assert ('connect', 'mail.firma.de', 587) in mails and 'tls' in mails and ('login', 'ec') in mails
+    assert any(m[0] == 'to' and m[1] == 'admin@firma.de' and 'Wallbox 1 offline' in m[3] for m in mails if isinstance(m, tuple))
+    assert posts[0][0] == 'https://n8n.firma.de/hook' and posts[0][1]['text'].endswith('Wallbox 1 offline')
+
+
+def test_nothing_configured_sends_nothing():
+    assert notify.send({}, 's', ['x']) == ['Keine Benachrichtigung eingerichtet (E-Mail oder Webhook).']

@@ -23,6 +23,7 @@ from aiohttp import web
 from app_settings import VALID_LOG_LEVELS
 
 from . import logs, validate
+from .store import mask
 from .web import _e, _env_warning, _login_cookie, _msg, _page, _restart_box
 
 _LOGGER = logging.getLogger(__name__)
@@ -283,6 +284,7 @@ def register(app: web.Application, ctx) -> None:
             ('Datenbank', f'{_size(ctx.session_manager.db_path)} ({ctx.session_manager.db_path})'),
             ('Datenverzeichnis', f'{ctx.data_dir} · frei {disk.free / 1024 ** 3:.1f} GB'),
         ]
+        notify_form = notify_body(values if values.get('_form') == 'notify' else {})
         bs = backup_status(ctx.data_dir)
         auto_backup = (f'<p class="hint"><b>Automatisch:</b> jede Nacht ein Backup nach <code>{_e(bs["folder"])}</code>, '
                        f'die letzten {DAILY_KEEP} bleiben. Zurzeit {bs["count"]}'
@@ -316,6 +318,8 @@ def register(app: web.Application, ctx) -> None:
   <button class="btn-2nd" type="submit">Passwort ändern</button>
   <div class="hint">Meldet alle anderen Sitzungen ab.</div>
 </form>
+</div><div class="card"><div class="card-title">Benachrichtigungen</div>
+{notify_form}
 </div><div class="card"><div class="card-title">Backup</div>
 <p class="hint">Enthält Konfiguration (mit Dolibarr-Token und Wallbox-Passwörtern im Klartext), alle
 Ladevorgänge, Admin-Konto und Änderungsprotokoll – sicher aufbewahren.</p>
@@ -336,6 +340,75 @@ Ladevorgänge, Admin-Konto und Änderungsprotokoll – sicher aufbewahren.</p>
 </div><div class="card"><div class="card-title">Systeminfo</div>
 <ul class="checks">{info_html}</ul>
 <div class="row2"><a class="btn-2nd" href="/logs">System-Log</a><a class="btn-2nd" href="/system">Diagnose</a></div>""")
+
+    def notify_body(values):
+        from . import notify   # hier: notify nutzt selbst backup_status aus diesem Modul
+        cfg = notify.settings(ctx.config)
+        v = lambda k: values.get(k, cfg.get(k, ''))
+        pw_hint = (f'Gespeichert: {_e(mask(cfg.get("smtp_password")))} – leer lassen, um es zu behalten.'
+                   if cfg.get('smtp_password') else '')
+        tls = v('smtp_tls') or 'starttls'
+        return f"""<p class="hint">Meldet einmal, wenn etwas liegen bleibt: Ladung von Dolibarr abgelehnt oder
+unvollständig, Ladungen hängen in der Warteschlange, eine Wallbox ist offline, kein aktuelles Backup.
+Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
+{_env_warning(['notify.email_to', 'notify.smtp_password', 'notify.webhook_url'])}
+<form method="POST" action="/settings/notify">
+  <div class="grid2">
+    <div><label class="flabel">E-Mail an</label><input name="email_to" value="{_e(v('email_to'))}" placeholder="fuhrpark@firma.de"></div>
+    <div><label class="flabel">SMTP-Server</label><input name="smtp_host" value="{_e(v('smtp_host'))}" placeholder="mail.firma.de"></div>
+    <div><label class="flabel">Port</label><input name="smtp_port" inputmode="numeric" value="{_e(v('smtp_port'))}"></div>
+    <div><label class="flabel">Verschlüsselung</label><select name="smtp_tls">{''.join(
+        f'<option value="{m}"{" selected" if m == tls else ""}>{n}</option>'
+        for m, n in (('starttls', 'STARTTLS (587)'), ('ssl', 'SSL/TLS (465)'), ('none', 'keine')))}</select></div>
+    <div><label class="flabel">SMTP-Benutzer</label><input name="smtp_user" value="{_e(v('smtp_user'))}" autocomplete="off"></div>
+    <div><label class="flabel">SMTP-Passwort</label><input name="smtp_password" type="password" autocomplete="new-password">
+      <div class="hint">{pw_hint}</div></div>
+    <div><label class="flabel">Absender</label><input name="smtp_from" value="{_e(v('smtp_from'))}" placeholder="expensecharge@firma.de"></div>
+    <div><label class="flabel">Webhook-URL (optional)</label><input name="webhook_url" value="{_e(v('webhook_url'))}" placeholder="https://n8n.firma.de/webhook/…">
+      <div class="hint">POST mit JSON <code>{{"title", "text", "alerts"}}</code> – z.B. n8n, ntfy, Home Assistant</div></div>
+    <div><label class="flabel">Wallbox offline melden nach (h)</label><input name="offline_hours" inputmode="numeric" value="{_e(v('offline_hours'))}"></div>
+    <div><label class="flabel">Warteschlange melden nach (h)</label><input name="pending_hours" inputmode="numeric" value="{_e(v('pending_hours'))}"></div>
+  </div>
+  <div class="row2">
+    <button class="btn-2nd" type="submit" name="action" value="test">Test senden</button>
+    <button class="btn-save" type="submit" name="action" value="save">Speichern</button>
+  </div>
+</form>"""
+
+    async def notify_post(request):
+        from . import notify   # hier: notify nutzt selbst backup_status aus diesem Modul
+        form = await request.post()
+        stored = notify.settings(ctx.config)
+        try:
+            new = {}
+            for key in ('email_to', 'smtp_host', 'smtp_user', 'smtp_from', 'webhook_url'):
+                new[key] = (form.get(key) or '').strip()
+                if len(new[key]) > 200 or not new[key].isprintable():
+                    raise ValueError(f'{key}: höchstens 200 druckbare Zeichen')
+            for key in ('email_to', 'smtp_from'):
+                if new[key] and ('@' not in new[key] or ' ' in new[key]):
+                    raise ValueError(f'{"E-Mail an" if key == "email_to" else "Absender"}: keine gültige Adresse')
+            if new['email_to'] and not new['smtp_host']:
+                raise ValueError('Für E-Mail wird ein SMTP-Server gebraucht')
+            if new['webhook_url'] and not new['webhook_url'].startswith(('http://', 'https://')):
+                raise ValueError('Webhook-URL: mit http:// oder https:// angeben')
+            new['smtp_port'] = _parse(form.get('smtp_port') or 587, 'Port', 1, 65535, int)
+            new['smtp_tls'] = form.get('smtp_tls') if form.get('smtp_tls') in notify.TLS_MODES else 'starttls'
+            new['offline_hours'] = _parse(form.get('offline_hours') or 2, 'Wallbox offline', 1, 168, int)
+            new['pending_hours'] = _parse(form.get('pending_hours') or 6, 'Warteschlange', 1, 168, int)
+            new['smtp_password'] = form.get('smtp_password') or stored.get('smtp_password') or ''
+        except ValueError as exc:
+            return page(request, 'Einstellungen', settings_body(request, dict(form) | {'_form': 'notify'},
+                                                                error=_e(exc)))
+        if form.get('action') == 'test':
+            errors = await asyncio.to_thread(notify.send, new, 'ExpenseCharge: Testnachricht',
+                                             ['Benachrichtigungen funktionieren.'])
+            msg = dict(error=_e(' · '.join(errors))) if errors else dict(info='Testnachricht verschickt.')
+            return page(request, 'Einstellungen', settings_body(request, dict(form) | {'_form': 'notify'}, **msg))
+        diff = ctx.store.update({f'notify.{k}': v for k, v in new.items()}, ctx.config)
+        ctx.audit.record_diff(request['user'], diff)
+        return page(request, 'Einstellungen', settings_body(
+            request, info='Benachrichtigungen gespeichert – wirken sofort.' if diff else 'Keine Änderung.'))
 
     async def settings_page(request):
         return page(request, 'Einstellungen', settings_body(request))
@@ -452,6 +525,7 @@ Ladevorgänge, Admin-Konto und Änderungsprotokoll – sicher aufbewahren.</p>
     r.add_get('/settings', settings_page)
     r.add_post('/settings', settings_post)
     r.add_post('/settings/password', password_post)
+    r.add_post('/settings/notify', notify_post)
     r.add_post('/settings/backup', backup)
     r.add_post('/settings/restore', restore)
     r.add_get('/logs', logs_page)
