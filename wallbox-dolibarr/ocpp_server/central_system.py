@@ -112,7 +112,7 @@ class CentralSystemChargePoint(ChargePoint):
         # Klartext NUR im flüchtigen Live-Zustand (Ingress-UI, Admin), damit die
         # Karte eingetragen werden kann — im Log nur der Hash-Präfix.
         self._state['last_rejected_id_tag'] = tag
-        _LOGGER.warning("[%s] Karte abgelehnt (nicht in rfid_whitelist): %s...",
+        _LOGGER.warning("[%s] Karte abgelehnt (nicht unter „Karten“ freigegeben): %s...",
                         self.id, hash_rfid(tag)[:16])
         return AuthorizationStatus.invalid
 

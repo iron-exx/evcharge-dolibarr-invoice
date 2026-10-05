@@ -110,6 +110,8 @@ Die Authentifizierung läuft über ein **einzelnes gemeinsames Token** (Shared S
 
 ## 3.4 — Variante OCPP (statt HA-Sensoren)
 
+**Ausführlich, Schritt für Schritt bis zur ersten abgerechneten Ladung:** [docs/OCPP-WALLBOX-ANBINDEN.md](docs/OCPP-WALLBOX-ANBINDEN.md)
+
 Ab Addon 2.0.0 kann ExpenseCharge selbst OCPP-1.6J-Zentralserver sein. Dann entfällt die
 HACS-Integration, und unbekannte Karten laden nicht.
 
@@ -132,8 +134,8 @@ Checkliste:
        password: "bitte-mindestens-16-zeichen"
        wallbox_id: "garage"
    ```
-6. Karten in **GROSSBUCHSTABEN** in `rfid_whitelist` und in Dolibarr eintragen. Die ID
-   einer abgelehnten Karte zeigt die Ingress-UI rot an.
+6. Karten freigeben: Web-UI → *Karten* → Lernmodus, Karte vorhalten, benennen, als
+   geschäftlich/privat einordnen — und in Dolibarr dem Mitarbeiter zuordnen.
 
 Details, Herstellertabelle und Sicherheitshinweise:
 [wallbox-dolibarr/README.md](wallbox-dolibarr/README.md#betriebsart-ocpp-herstellerunabhängig-empfohlen-für-neue-installationen)
@@ -204,6 +206,9 @@ Wer lieber im Terminal einrichtet: `./setup-standalone.sh` fragt dasselbe ab und
 `data/options.json` + `.env` (Details in der README).
 
 ### 3.5.4 — Wallbox verbinden
+
+Ausführlich mit Alfen-Menüs, Karten, Testladung und Fehlerbildern: [docs/OCPP-WALLBOX-ANBINDEN.md](docs/OCPP-WALLBOX-ANBINDEN.md).
+Kurzfassung:
 
 In der Wallbox (Alfen: ACE Service Installer → Connectivity → OCPP):
 

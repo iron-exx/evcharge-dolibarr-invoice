@@ -78,6 +78,9 @@ Ein Moduswechsel sollte nur ohne laufenden Ladevorgang erfolgen.
 
 ### Einrichtung Schritt für Schritt
 
+Ausführlich (Standalone und HA, Alfen-Menüs, Karten, Testladung, Fehlerbilder):
+[docs/OCPP-WALLBOX-ANBINDEN.md](../docs/OCPP-WALLBOX-ANBINDEN.md). Kurzfassung fürs HA-Addon:
+
 1. **Port freigeben**: Addon → *Konfiguration* → Abschnitt **Netzwerk** → bei `9000/tcp`
    einen Host-Port eintragen (z.B. `9000`). Der Default ist bewusst leer, weil Port 9000
    mit der HACS-Integration `lbbrhzn/ocpp` kollidieren würde.
@@ -89,8 +92,9 @@ Ein Moduswechsel sollte nur ohne laufenden Ladevorgang erfolgen.
    `Unbekannte Charge-Point-ID 'ACE0123456' – in ocpp_charge_points eintragen`.
    Das ist die ID, die die Wallbox sendet.
 5. Diese ID in `ocpp_charge_points` eintragen, optional mit Passwort (Basic Auth).
-6. **Karten in GROSSBUCHSTABEN** in `rfid_whitelist` und in Dolibarr eintragen. Die ID
-   einer abgelehnten Karte zeigt die Ingress-UI im Live-Block rot an.
+6. **Karten freigeben**: Web-UI → *Karten* → Lernmodus, Karte vorhalten, benennen und
+   als geschäftlich/privat einordnen — und in Dolibarr dem Mitarbeiter zuordnen.
+   (`rfid_whitelist` geht weiterhin, Karten dort in GROSSBUCHSTABEN.)
 
 ### Beispielkonfiguration
 
