@@ -67,7 +67,7 @@ async def test_employees_offered_as_names(env):
 async def test_whitelist_import(env):
     c = env['client']
     page = await (await c.get('/tags')).text()
-    assert 'Alte Whitelist' in page
+    assert 'Karte manuell anlegen' in page and '2 Karte(n) in die Liste übernehmen' in page
     r = await _post(c, '/tags', '/tags/import-whitelist', {})
     assert '2 Karte(n) übernommen' in await r.text()
     assert env['sm'].get_tag('EFCD083E')['mode'] == 'business'
@@ -75,4 +75,4 @@ async def test_whitelist_import(env):
     assert json.loads((env['dir'] / 'options.json').read_text())['rfid_whitelist'] == []
     assert env['config']['rfid_whitelist'] == []
     assert 'EFCD083E' not in (env['dir'] / 'audit.log').read_text()
-    assert 'Alte Whitelist' not in await (await c.get('/tags')).text()
+    assert 'in die Liste übernehmen' not in await (await c.get('/tags')).text()

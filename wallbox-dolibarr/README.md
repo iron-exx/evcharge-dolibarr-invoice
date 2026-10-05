@@ -585,7 +585,8 @@ Nach dem Anmelden kommen zu Erfassen · Verlauf · Karten · System diese Seiten
   - **OCPP-Protokoll**: die letzten 200 Nachrichten, Karten-IDs ausgeblendet
 - **Karten** (auch im HA-Addon) — Karten von Hand eintragen, umbenennen,
   geschäftlich/privat/gesperrt umordnen; Mitarbeiter aus Dolibarr als
-  Namensvorschlag; eine alte `rfid_whitelist` per Knopf übernehmen
+  Namensvorschlag; unter **Karte manuell anlegen** Karten per ID eintragen und von Hand
+  in der Konfiguration (`rfid_whitelist`) eingetragene per Knopf in die Liste übernehmen
 - **Ladevorgänge** — Filter nach Monat und Status, CSV-Export, Übertragungsstatus
   mit letztem Lauf und **„Jetzt übertragen“**. Unvollständige Ladungen mit von Hand
   ermittelter kWh abschließen oder verwerfen; übertragene bleiben unangetastet

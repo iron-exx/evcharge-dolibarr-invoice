@@ -979,10 +979,17 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
     Nicht eingeordnete Karten können nicht laden.
   </div>
   {tags_html}
-  <div class="card-title" style="margin-top:14px">Karte von Hand eintragen</div>
-  {add_html}
 </div>
-{extra_html}
+
+<div class="card">
+  <div class="card-title">{_ICO_CARD} Karte manuell anlegen</div>
+  <div style="color:var(--muted);font-size:13px;margin-bottom:10px">
+    Für Karten, deren ID bekannt ist (aufgedruckt, aus Dolibarr oder vom Kartenlieferanten) —
+    ohne sie an die Wallbox zu halten. Unbekannte ID? Dann den Lernmodus oben nutzen.
+  </div>
+  {add_html}
+  {extra_html}
+</div>
 {employees_html}
 <datalist id="ec-employees">{datalist}</datalist>
 <style>
@@ -1726,12 +1733,14 @@ def create_app(session_manager, config, api_state):
         entries = [str(x) for x in (config.get('rfid_whitelist') or []) if str(x).strip()]
         if not admin_ctx or not entries:
             return ''
-        return ('<div class="card"><div class="card-title">' + _ICO_CARD + ' Alte Whitelist</div>'
+        return ('<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">'
                 f'<div style="color:var(--muted);font-size:13px;margin-bottom:10px">In der Konfiguration '
-                f'stehen noch {len(entries)} Karte(n) unter <code>rfid_whitelist</code>. Sie laden und werden '
-                'abgerechnet, tauchen hier aber nicht auf. Übernehmen trägt sie als geschäftlich ein und '
-                'leert die Liste.</div><form method="POST" action="tags/import-whitelist">'
-                '<button type="submit" class="btn">In die Kartenverwaltung übernehmen</button></form></div>')
+                f'(<code>rfid_whitelist</code>) sind außerdem <strong>{len(entries)} Karte(n)</strong> manuell '
+                'eingetragen. Sie laden und werden abgerechnet, stehen aber nicht in der Liste oben – '
+                'übernehmen, dann lassen sie sich hier benennen und einordnen.</div>'
+                '<form method="POST" action="tags/import-whitelist">'
+                f'<button type="submit" class="btn">{len(entries)} Karte(n) in die Liste übernehmen</button>'
+                '</form></div>')
 
     async def _tags_response(request, message_html=''):
         return web.Response(
