@@ -136,7 +136,7 @@ def test_mask():
     (validate.dolibarr_url, 'https://erp.firma.de', ['erp.firma.de', 'ftp://x', 'https://erp.example.com']),
     (validate.api_token, 'abcdefgh', ['kurz', 'mit leerzeichen drin']),
     (validate.charge_point_id, 'ACE0123456', ['', 'a/b', 'x' * 49]),
-    (validate.wallbox_id, 'garage', ['', 'a/b', 'ä']),
+    (validate.wallbox_id, 'garage', ['x' * 51, 'a\x00b']),
     (validate.ocpp_password, 'a' * 16, ['a' * 15, 'a' * 41, 'a' * 15 + '\n']),
     (validate.rfid, 'EFCD083E', ['ABC', 'EF-CD', 'A' * 21]),
 ])
@@ -207,15 +207,9 @@ def test_no_account_logs_setup_code(tmp_path, monkeypatch, caplog):
     assert ctx.setup_code and ctx.setup_code in caplog.text
 
 
-def test_wallbox_id_spaces_become_underscore():
+def test_wallbox_id_accepts_any_name():
     from admin import validate
     assert validate.wallbox_id(' Wallbox 1 ') == 'Wallbox_1'
-    assert validate.wallbox_id('Garage  links') == 'Garage_links'
-    with pytest.raises(ValueError, match='Leerzeichen werden zu _'):
-        validate.wallbox_id('Garage/links')
-
-
-def test_wallbox_id_ascii_like_dolibarr():
-    """receive.php prüft mit PHP-\\w ohne /u — Umlaute würden dort mit HTTP 400 abgelehnt."""
-    from ocpp_server.settings import sanitize_wallbox_id
-    assert sanitize_wallbox_id('Müller 1') == 'M_ller_1'
+    assert validate.wallbox_id('Müller/links') == 'Mueller_links'
+    assert validate.wallbox_id('', 'Garage links', 'ACE1') == 'Garage_links', "leer → aus dem Namen"
+    assert validate.wallbox_id('', '', 'ACE1') == 'ACE1', "sonst aus der Charge-Point-ID"

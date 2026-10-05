@@ -1,15 +1,15 @@
 """Auflösung der OCPP-Konfiguration aus /data/options.json."""
 import logging
-import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
+from utils.wallbox_id import to_dolibarr_id
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_HEARTBEAT_INTERVAL = 300
 _MIN_HEARTBEAT, _MAX_HEARTBEAT = 30, 3600
 _MIN_PASSWORD_LEN = 16          # OCPP-1.6-Security-Whitepaper: AuthorizationKey >= 16 Byte
-_WALLBOX_ID_INVALID = re.compile(r'[^\w\-.]', re.ASCII)   # receive.php: ^[\w\-\.]{1,50}$, PHP-\w = nur ASCII
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,7 @@ class OcppSettings:
 
 
 def sanitize_wallbox_id(raw) -> str:
-    cleaned = _WALLBOX_ID_INVALID.sub('_', str(raw or '').strip())[:50]
-    return cleaned or 'wallbox'
+    return to_dolibarr_id(raw)
 
 
 def _heartbeat(raw) -> int:

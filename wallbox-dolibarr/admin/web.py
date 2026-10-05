@@ -419,7 +419,7 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
   <div class="hint">Steht in der Wallbox-Konfiguration (Alfen: Seriennummer). Unbekannte IDs meldet das Log.</div>
   <div class="row2">
     <div><label class="flabel">Name</label><input name="name" value="{_e(values.get('name'))}" placeholder="Garage links"></div>
-    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id') or 'garage')}" required><div class="hint">Kennung für Dolibarr (steht in der Spesenzeile), z.B. <code>garage</code> oder <code>wallbox_1</code> – Leerzeichen werden zu _.</div></div>
+    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" placeholder="aus dem Namen"><div class="hint">Steht in der Dolibarr-Spesenzeile. Beliebiger Name möglich – leer = aus dem Namen; „Wallbox 1“ wird zu <code>Wallbox_1</code>.</div></div>
   </div>
   <label class="flabel">OCPP-Passwort</label>
   <input name="password" type="password" autocomplete="new-password" placeholder="leer = zufällig erzeugen">
@@ -446,7 +446,7 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
         try:
             cp_id = validate.charge_point_id(form.get('cp_id'))
             name = validate.label(form.get('name'))
-            wb = validate.wallbox_id(form.get('wallbox_id'))
+            wb = validate.wallbox_id(form.get('wallbox_id'), name, cp_id)
             pw = form.get('password') or ''
             generated = not pw
             pw = secrets.token_hex(12) if generated else validate.ocpp_password(pw)

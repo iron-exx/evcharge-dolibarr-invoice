@@ -11,6 +11,7 @@ from urllib3.util.retry import Retry
 import logging
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
+from utils.wallbox_id import to_dolibarr_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,7 +103,8 @@ class WallboxApiClient:
         # Entweder rfid_hash (physischer Tap) oder login (manuelle Admin-Erfassung
         # per Mitarbeiter-Auswahl) — nie beides gleichzeitig
         payload = {
-            "wallbox_id": session_data["wallbox_id"],
+            # Jeder Name (auch "Wallbox 1", "Müller") → gültige Kennung für receive.php
+            "wallbox_id": to_dolibarr_id(session_data["wallbox_id"]),
             "start_time": format_timestamp(session_data["start_time"]),  # ISO 8601
             "end_time": format_timestamp(session_data["end_time"]),      # ISO 8601
             "kwh": round(float(session_data["kwh"]), 3)                # 3 Nachkommastellen
