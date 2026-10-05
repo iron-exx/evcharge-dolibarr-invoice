@@ -586,15 +586,22 @@ Nach dem Anmelden kommen zu Erfassen · Verlauf · Karten · System diese Seiten
   geschäftlich/privat/gesperrt umordnen; Mitarbeiter aus Dolibarr als
   Namensvorschlag; unter **Karte manuell anlegen** Karten per ID eintragen und von Hand
   in der Konfiguration (`rfid_whitelist`) eingetragene per Knopf in die Liste übernehmen
-- **Ladevorgänge** — Filter nach Monat und Status, CSV-Export, Übertragungsstatus
-  mit letztem Lauf und **„Jetzt übertragen“**. Unvollständige Ladungen mit von Hand
+- **Ladevorgänge** — Filter nach Monat und Status, CSV-Export, **Ladenachweis**
+  (je Mitarbeiter und Monat mit Zählerständen, druckbar/PDF, für die Erstattung nach
+  BMF-Schreiben 11.11.2025; Pauschale über `tax_flat_price`, 2026: 0,34), Übertragungsstatus
+  mit letztem Lauf und **„Jetzt übertragen“**. Von Dolibarr abgelehnte Ladungen (z.B. Karte
+  keinem Mitarbeiter zugeordnet) werden zurückgestellt, die übrigen weiter übertragen; nach
+  der Korrektur **„Erneut senden“**. Unvollständige Ladungen mit von Hand
   ermittelter kWh abschließen oder verwerfen; übertragene bleiben unangetastet
 - **Einstellungen** — Betriebsparameter (Detailgrad wirkt sofort, der Rest nach
   Neustart; Ports/Bind-Adressen bleiben in der `.env`), Admin-Passwort ändern,
   **Backup** (ZIP mit Konfiguration, Datenbank, Konto, Protokoll — enthält Token und
   Wallbox-Passwörter im Klartext) und **Wiederherstellen** (prüft das ZIP, sichert
   vorher den jetzigen Stand als `backup-vor-wiederherstellung-….zip`, startet neu).
-  Beides verlangt das Admin-Passwort. Dazu **Systeminfo**
+  Beides verlangt das Admin-Passwort. Zusätzlich **automatisch jede Nacht** nach
+  `data/backups/` (die letzten 14). **Benachrichtigungen** per E-Mail (SMTP) und/oder
+  Webhook, wenn eine Ladung abgelehnt oder unvollständig ist, Ladungen in der Warteschlange
+  hängen, eine Wallbox offline ist oder das Backup fehlt — jedes Problem einmal. Dazu **Systeminfo**
 - **Protokoll** — Änderungen (`data/audit.log`) und das **System-Log** der letzten
   2000 Zeilen seit dem Start, filterbar und zum Herunterladen
 

@@ -195,11 +195,14 @@ ExpenseCharge entscheidet nur, **ob** übertragen wird.
    **Jetzt übertragen** — wechselt der Status auf **übertragen**.
 5. In Dolibarr: Spesenabrechnung des Mitarbeiters im Monat des **Ladeendes** → Zeile
    „Wallbox Wallbox_1: 12.50 kWh“.
+6. Für die Lohnakte: **Verlauf → Ladenachweis** — je Mitarbeiter eine Seite mit
+   Zählerständen, zum Drucken bzw. als PDF.
 
 | Problem | Ursache | Abhilfe |
 |---|---|---|
 | Wallbox lädt nicht, Log `Karte abgelehnt (nicht unter „Karten“ freigegeben)` | Karte unbekannt | Schritt 6 |
 | Ladung **unvollständig** | Wallbox lieferte keinen brauchbaren Endstand | **Ladevorgänge** → kWh vom Fahrzeug/Display eintragen → **Abschließen**, oder **Verwerfen** |
+| Ladung **abgelehnt** | Dolibarr kennt die Karte nicht (`RFID not registered`) | Karte in Dolibarr dem Mitarbeiter zuordnen → **Ladevorgänge → Erneut senden**; die übrigen Ladungen laufen derweil weiter |
 | Ladung bleibt **ausstehend**, „Letzter Lauf“ zeigt Fehler | Dolibarr lehnt ab oder ist nicht erreichbar | Fehlertext lesen: `401` = Token, `RFID not registered` = Karte in Dolibarr zuordnen, `HTML statt JSON` = Modul nicht aktiv |
 | Ladung **privat** | Karte ist als privat eingeordnet | gewollt — unter **Karten** umstellen, falls nicht |
 | kWh viel zu klein (Faktor 1000) | Wallbox meldet kWh statt Wh | Ladung wird als unvollständig markiert statt still verworfen → von Hand abschließen; Hersteller-Einstellung prüfen |

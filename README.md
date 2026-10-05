@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Addon-2.0.0-22c55e" alt="Addon 2.0.0">
+  <img src="https://img.shields.io/badge/Addon-2.1.0-22c55e" alt="Addon 2.1.0">
   <img src="https://img.shields.io/badge/Dolibarr--Modul-2.3.6-14b8a6" alt="Dolibarr-Modul 2.3.6">
   <img src="https://img.shields.io/badge/Dolibarr-20–22-0f766e" alt="Dolibarr 20–22">
   <img src="https://img.shields.io/badge/OCPP-1.6J-0e7490" alt="OCPP 1.6J">
@@ -81,6 +81,11 @@ werden lokal gepuffert und nachgereicht.
 - Jede geschäftliche Ladung wird eine Position in der **Spesenabrechnung des Mitarbeiters**, im Monat des Ladeendes
 - Mehrere Karten pro Mitarbeiter, Preis je Karte oder global (€/kWh)
 - **Duplikatschutz**: dieselbe Ladung wird nie doppelt abgerechnet, auch bei Wiederholungen
+- **Ladenachweis für das Finanzamt**: je Mitarbeiter und Monat mit Zählerständen, als PDF oder CSV — passend zur
+  Erstattung nach BMF-Schreiben vom 11.11.2025 (seit 2026 nur gegen Nachweis der kWh; Strompreis-Pauschale
+  2026: 34 ct/kWh)
+- Lehnt Dolibarr eine Ladung ab (z.B. Karte keinem Mitarbeiter zugeordnet), wird sie zurückgestellt — alle
+  anderen werden weiter übertragen
 - Ladungen werden lokal gepuffert (SQLite) und bei Ausfall automatisch nachgereicht
 - Unplausible Messungen werden als **unvollständig** markiert statt falsch abgerechnet — und lassen sich von Hand korrigieren
 
@@ -97,8 +102,8 @@ Ohne Home Assistant (standalone) ist die Web-Oberfläche zugleich die Verwaltung
 |---|---|
 | **Ersteinrichtung** | Assistent: Admin-Konto, Dolibarr (mit Verbindungstest), erste Wallbox, Karten |
 | **Wallboxen** | anlegen mit Passwort-Generator, Live-Zustand, unbekannte Wallboxen übernehmen, **Fernbefehle** (Laden starten/beenden, entriegeln, Neustart, …), Wallbox-Konfiguration lesen/ändern, empfohlene Einstellungen, OCPP-Protokoll |
-| **Ladevorgänge** | Filter nach Monat/Status, CSV-Export, Übertragungsstatus, „Jetzt übertragen“, Unvollständiges abschließen oder verwerfen |
-| **Einstellungen** | Betriebsparameter, Admin-Passwort, **Backup & Wiederherstellung** per Klick, Systeminfo |
+| **Ladevorgänge** | Filter nach Monat/Status, CSV-Export, Ladenachweis, Übertragungsstatus, „Jetzt übertragen“, Unvollständiges abschließen oder verwerfen, Abgelehntes erneut senden |
+| **Einstellungen** | Betriebsparameter, Admin-Passwort, **Backup & Wiederherstellung** per Klick plus automatisch jede Nacht, **Benachrichtigung per E-Mail/Webhook**, wenn etwas liegen bleibt, Systeminfo |
 | **Protokoll** | jede Änderung mit Benutzer und Zeit, System-Log zum Filtern und Herunterladen |
 
 Anmeldung mit eigenem Admin-Konto, Schutz gegen CSRF und Passwort-Raten, Geheimnisse nur maskiert.
