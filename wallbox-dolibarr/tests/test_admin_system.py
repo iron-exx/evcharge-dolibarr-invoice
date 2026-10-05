@@ -130,3 +130,16 @@ async def test_logs_and_sysinfo(env):
     assert 'ACE0099 sagt hallo' in txt
     page = await (await c.get('/settings')).text()
     assert 'Systeminfo' in page and 'Laufzeit' in page and 'tok-12345678' not in page
+
+
+def test_daily_backup_rotation(tmp_path):
+    from datetime import date, timedelta
+    (tmp_path / 'options.json').write_text('{"a": 1}')
+    day = date(2026, 10, 1)
+    for i in range(16):
+        assert system.daily_backup(str(tmp_path), today=day + timedelta(days=i), keep=14)
+    assert system.daily_backup(str(tmp_path), today=day + timedelta(days=15), keep=14) is None, "einmal pro Tag"
+    files = sorted(p.name for p in (tmp_path / 'backups').iterdir())
+    assert len(files) == 14 and files[0] == 'expensecharge-20261003.zip' and files[-1] == 'expensecharge-20261016.zip'
+    assert oct((tmp_path / 'backups' / files[0]).stat().st_mode & 0o777) == '0o600', "enthält Geheimnisse"
+    assert system.backup_status(str(tmp_path))['count'] == 14

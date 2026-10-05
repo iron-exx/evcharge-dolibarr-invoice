@@ -53,6 +53,7 @@ import env_config
 from env_config import apply_env_overrides
 from admin import is_standalone
 from admin import logs as admin_logs
+from admin import system as admin_system
 from admin.web import AdminContext, new_setup_code
 from placeholders import find_placeholders
 from ocpp_server.central_system import CentralSystemDeps
@@ -1150,6 +1151,7 @@ async def main():
     if is_standalone():
         api_state['admin'] = build_admin_context()
         warn_if_web_exposed(api_state['admin'].accounts.exists())
+        asyncio.create_task(admin_system.backup_loop(data_dir()))   # nächtliches Backup nach data/backups/
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")

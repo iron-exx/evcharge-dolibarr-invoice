@@ -113,6 +113,54 @@ def make_backup(data_dir: str) -> bytes:
     return buf.getvalue()
 
 
+DAILY_KEEP = 14
+
+
+def _backup_dir(data_dir: str) -> str:
+    return os.path.join(data_dir, 'backups')
+
+
+def daily_backup(data_dir: str, today=None, keep: int = DAILY_KEEP):
+    """Ein Backup pro Tag nach <data>/backups/, die ältesten über `keep` weg.
+    → Pfad des neuen Backups, oder None, wenn es heute schon eins gibt."""
+    today = today or datetime.now().date()
+    folder = _backup_dir(data_dir)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, f'expensecharge-{today:%Y%m%d}.zip')
+    if os.path.exists(path):
+        return None
+    data = make_backup(data_dir)
+    tmp = path + '.tmp'
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # enthält Token und Passwörter
+    with os.fdopen(fd, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, path)
+    for old in sorted(n for n in os.listdir(folder) if n.startswith('expensecharge-') and n.endswith('.zip'))[:-keep]:
+        os.remove(os.path.join(folder, old))
+    return path
+
+
+def backup_status(data_dir: str) -> dict:
+    folder = _backup_dir(data_dir)
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.startswith('expensecharge-') and n.endswith('.zip'))
+    except FileNotFoundError:
+        names = []
+    return {'count': len(names), 'latest': names[-1] if names else None, 'folder': folder}
+
+
+async def backup_loop(data_dir: str, interval: float = 3600) -> None:
+    """Stündlich prüfen, ob das Backup von heute fehlt — übersteht Neustarts und Zeitsprünge."""
+    while True:
+        try:
+            path = await asyncio.to_thread(daily_backup, data_dir)
+            if path:
+                _LOGGER.info("Automatisches Backup: %s", path)
+        except Exception as exc:   # ein volles Laufwerk o.ä. darf den Betrieb nicht stören
+            _LOGGER.error("Automatisches Backup fehlgeschlagen: %s", exc)
+        await asyncio.sleep(interval)
+
+
 def check_backup(data: bytes) -> dict:
     """Prüft ein hochgeladenes Backup → {name: bytes}. ValueError mit Klartext-Grund."""
     try:
@@ -235,6 +283,12 @@ def register(app: web.Application, ctx) -> None:
             ('Datenbank', f'{_size(ctx.session_manager.db_path)} ({ctx.session_manager.db_path})'),
             ('Datenverzeichnis', f'{ctx.data_dir} · frei {disk.free / 1024 ** 3:.1f} GB'),
         ]
+        bs = backup_status(ctx.data_dir)
+        auto_backup = (f'<p class="hint"><b>Automatisch:</b> jede Nacht ein Backup nach <code>{_e(bs["folder"])}</code>, '
+                       f'die letzten {DAILY_KEEP} bleiben. Zurzeit {bs["count"]}'
+                       + (f', zuletzt <code>{_e(bs["latest"])}</code>' if bs['latest'] else '') +
+                       '. Liegt auf demselben Laufwerk – zusätzlich ab und zu eins herunterladen und woanders '
+                       'ablegen.</p>')
         info_html = ''.join(f'<li><b>{_e(k)}</b> {_e(v)}</li>' for k, v in info_rows)
         return (f"""{_msg('err', error)}{_msg('ok', info)}{_restart_box(ctx)}
 {_env_warning(['log_level'] + [f for f, *_ in FIELDS])}
@@ -265,6 +319,7 @@ def register(app: web.Application, ctx) -> None:
 </div><div class="card"><div class="card-title">Backup</div>
 <p class="hint">Enthält Konfiguration (mit Dolibarr-Token und Wallbox-Passwörtern im Klartext), alle
 Ladevorgänge, Admin-Konto und Änderungsprotokoll – sicher aufbewahren.</p>
+{auto_backup}
 <form method="POST" action="/settings/backup">
   <label class="flabel">Admin-Passwort</label><input name="password" type="password" autocomplete="current-password" required>
   <button class="btn-2nd" type="submit">Backup herunterladen</button>
