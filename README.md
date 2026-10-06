@@ -139,6 +139,14 @@ Beide Varianten brauchen zuerst das **Dolibarr-Modul**.
 
 ### 2b · Standalone mit Docker
 
+In einem Befehl (Debian/Ubuntu/Raspberry Pi OS, 64 Bit):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/systemwerk-GmbH-Co-KG/ExpenseCharge/main/wallbox-dolibarr/install.sh | sudo bash
+```
+
+Oder von Hand:
+
 ```bash
 git clone https://github.com/systemwerk-GmbH-Co-KG/ExpenseCharge.git
 cd ExpenseCharge/wallbox-dolibarr

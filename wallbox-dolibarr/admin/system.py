@@ -366,9 +366,8 @@ def register(app: web.Application, ctx) -> None:
                        'ablegen.</p>')
         info_html = ''.join(f'<li><b>{_e(k)}</b> {_e(v)}</li>' for k, v in info_rows)
         update = (_msg('warn', f'Update verfügbar: {_e(ctx.latest_version)} (installiert {_e(app_version())}). '
-                               'Einspielen auf dem Server: <code>cd /opt/ExpenseCharge &amp;&amp; git pull &amp;&amp; '
-                               'cd wallbox-dolibarr &amp;&amp; docker compose up -d --build --force-recreate</code> – '
-                               'vorher ein Backup herunterladen.')
+                               'Einspielen auf dem Server: <code>sudo /opt/ExpenseCharge/wallbox-dolibarr/update.sh</code> '
+                               '(sichert vorher data/ und .env).')
                   if ctx.latest_version and newer(ctx.latest_version, app_version()) else '')
         return (f"""{_msg('err', error)}{_msg('ok', info)}{update}{_restart_box(ctx)}
 {_env_warning(['log_level'] + [f for f, *_ in FIELDS])}

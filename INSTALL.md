@@ -150,6 +150,19 @@ Quelle ist **`systemwerk-GmbH-Co-KG/ExpenseCharge`**, Branch `main` (öffentlich
 Token, kein Deploy Key nötig). Wer früher mit `-b feat/ocpp-central-system` geklont hat,
 kann dabei bleiben oder mit `git checkout main` wechseln.
 
+### Schnellinstallation in einem Befehl
+
+Auf einem frischen Debian/Ubuntu/Raspberry-Pi-OS (64 Bit), als root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/systemwerk-GmbH-Co-KG/ExpenseCharge/main/wallbox-dolibarr/install.sh | sudo bash
+```
+
+Installiert bei Bedarf git und Docker, holt den Code nach `/opt/ExpenseCharge`, legt die
+Grundkonfiguration an, startet und zeigt **Adresse und Einrichtungscode** — danach weiter im
+Browser. **Aktualisieren:** `sudo /opt/ExpenseCharge/wallbox-dolibarr/update.sh` (sichert vorher
+`data/` und `.env`). Die Schritte unten beschreiben dasselbe einzeln, plus Proxmox.
+
 ### 3.5.1 — Proxmox-Container anlegen
 
 | Einstellung | Wert |
@@ -261,11 +274,11 @@ Browser: **Einstellungen → Wiederherstellen**.
 ### 3.5.6 — Update
 
 ```bash
-cd /opt/ExpenseCharge
-git pull
-cd wallbox-dolibarr
-docker compose up -d --build --force-recreate
+sudo /opt/ExpenseCharge/wallbox-dolibarr/update.sh
 ```
+
+Das Skript sichert `data/` und `.env` nach `data/backups/`, holt die neue Version (`git pull`)
+und baut neu (`docker compose up -d --build --force-recreate`).
 
 `data/` und `.env` bleiben unberührt — **nichts vorher löschen**. `docker compose restart`
 reicht nach einem Update nicht (läuft mit dem alten Image weiter). Wer den Code-Stand
