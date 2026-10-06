@@ -1601,8 +1601,13 @@ def create_app(session_manager, config, api_state):
     async def handle_get(request):
         base_href = request.headers.get('X-Ingress-Path', '').rstrip('/')
         # Früher ?msg=/?t= — ungefiltert ins HTML (Reflected XSS) und von nichts mehr benutzt
+        admin_ctx = (api_state or {}).get('admin')
+        top = ''
+        if admin_ctx and request.get('role') == 'admin':
+            from admin import overview   # hier: admin.overview importiert seinerseits admin.web
+            top = overview.render(overview.status(admin_ctx))
         return web.Response(
-            text=_build_form_page(session_manager, config, '', base_href=base_href, api_state=api_state),
+            text=_build_form_page(session_manager, config, top, base_href=base_href, api_state=api_state),
             content_type='text/html'
         )
 
