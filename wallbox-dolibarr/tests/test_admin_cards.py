@@ -97,3 +97,19 @@ async def test_revoking_card_clears_wallbox_caches(env):
     await _post(c, '/tags', '/tags/delete', {'hash_prefix': prefix})
     await asyncio.sleep(0.01)
     assert calls == [1, 1], "gesperrt und entfernt → Cache geleert"
+
+
+async def test_guided_learn_mode(env):
+    from tag_learning import LearnBuffer
+    learn = LearnBuffer()
+    learn.enabled = True
+    env['api_state']['learn'] = learn
+    page = await (await env['client'].get('/tags')).text()
+    assert 'Halten Sie jetzt die Karte an die' in page and 'tags.json' in page, "Hinweis + Selbst-Aktualisierung"
+    learn.observe('04A1B2C3')
+    env['sm'].upsert_tag('04A1B2C3', 'Max Müller', 'business')
+    page = await (await env['client'].get('/tags')).text()
+    assert 'Wem gehört die Karte?' in page and 'Geschäftlich speichern' in page and 'Privat speichern' in page
+    assert 'Bereits eingetragen als „Max Müller“' in page
+    r = await _post(env['client'], '/tags', '/tags', {'tag': '04A1B2C3', 'label': 'Max Müller', 'mode': 'private'})
+    assert r.status == 302 and env['sm'].get_tag('04A1B2C3')['mode'] == 'private'

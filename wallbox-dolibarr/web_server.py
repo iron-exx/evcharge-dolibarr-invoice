@@ -877,38 +877,43 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
     toggle_value = 'off' if learn['enabled'] else 'on'
     toggle_style = 'background:var(--error)' if learn['enabled'] else ''
 
+    known = {t['hash_prefix']: t for t in tags}
     if learn['enabled']:
-        hint = ('<div style="color:var(--muted);font-size:13px;margin-bottom:10px">'
-                'Halte jetzt eine Karte an die Wallbox. Sie erscheint hier und kann '
-                'benannt werden. Der Klartext der Karten-ID liegt nur im Arbeitsspeicher '
-                'und verschwindet beim Beenden des Lernmodus.</div>')
+        hint = ('<div class="learn-now"><span class="pulse"></span><div><b>Halten Sie jetzt die Karte an die '
+                'Wallbox.</b><br><span style="font-size:13px">Sie erscheint hier von selbst – dann nur noch '
+                'eintragen, wem sie gehört. Weitere Karten einfach nacheinander vorhalten.</span></div></div>')
     else:
         hint = ('<div style="color:var(--muted);font-size:13px;margin-bottom:10px">'
-                'Im Lernmodus wird jede vorgehaltene Karte hier angezeigt — auch eine '
-                'bisher unbekannte. Danach benennen und einordnen.</div>')
+                'Neue Karte? „Lernmodus starten“, dann die Karte an die Wallbox halten – sie erscheint hier, '
+                'auch wenn die Wallbox sie noch ablehnt.</div>')
 
     detected_html = ''
+    if learn['enabled'] and learn['detected']:
+        rows = []
+        for d in learn['detected']:
+            have = known.get(d['hash_prefix'])
+            note = (f'<div class="hint">Bereits eingetragen als „{html.escape(have["label"] or "ohne Namen")}“ '
+                    f'({html.escape(have["mode_label"])}) – Speichern überschreibt.</div>' if have else '')
+            rows.append(
+                '<form method="POST" action="tags" class="learn-card">'
+                f'<input type="hidden" name="tag" value="{html.escape(d["tag"])}">'
+                f'<div class="hint">Karte <code>{html.escape(d["tag"])}</code> · vor {d["seconds_ago"]:.0f} s</div>'
+                '<label class="flabel">Wem gehört die Karte?</label>'
+                f'<input name="label" list="ec-employees" placeholder="Name des Mitarbeiters" required '
+                f'value="{html.escape((have or {}).get("label") or "")}" autofocus>{note}'
+                '<div class="learn-btns"><button type="submit" name="mode" value="business" class="btn">'
+                'Geschäftlich speichern</button><button type="submit" name="mode" value="private" class="btn-dl">'
+                'Privat speichern</button></div>'
+                '<div class="hint">Geschäftlich = wird abgerechnet · Privat = lädt, erscheint aber nie in der '
+                'Spesenabrechnung</div></form>')
+        detected_html = ''.join(rows)
     if learn['enabled']:
-        if learn['detected']:
-            rows = []
-            for d in learn['detected']:
-                rows.append(
-                    '<form method="POST" action="tags" class="tag-row">'
-                    f'<input type="hidden" name="tag" value="{html.escape(d["tag"])}">'
-                    f'<code style="font-size:15px;font-weight:700">{html.escape(d["tag"])}</code>'
-                    f'<span style="color:var(--dim);font-size:11px">vor {d["seconds_ago"]:.0f}s'
-                    f' · {d["count"]}x</span>'
-                    '<input name="label" placeholder="Name, z.B. Firmenwagen 1" required>'
-                    '<select name="mode">'
-                    '<option value="business">Geschäftlich — wird abgerechnet</option>'
-                    '<option value="private">Privat — bleibt lokal</option>'
-                    '</select>'
-                    '<button type="submit" class="btn">Speichern</button>'
-                    '</form>')
-            detected_html = ''.join(rows)
-        else:
-            detected_html = ('<div style="color:var(--dim);font-size:13px;padding:8px 0">'
-                             'Noch keine Karte erkannt — jetzt eine an die Wallbox halten.</div>')
+        seen = ','.join(sorted(d['hash_prefix'] for d in learn['detected']))
+        detected_html += (f'''<script>(function(){{var seen="{seen}";
+setInterval(function(){{fetch("tags.json").then(function(r){{return r.json();}}).then(function(d){{
+ var now=(d.learn.detected||[]).map(function(x){{return x.hash_prefix;}}).sort().join(",");
+ if(now!==seen&&!document.activeElement.matches("input[name=label]:not(:placeholder-shown)"))location.reload();
+}}).catch(function(){{}});}},2000);}})();</script>''')
 
     def mode_select(selected):
         return ('<select name="mode">' + ''.join(
@@ -1014,6 +1019,13 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
 .tag-row:last-child {{ border-bottom:none; }}
 .tag-row input[name=label] {{ flex:1; min-width:160px; }}
 .tag-edit {{ display:flex; gap:8px; flex:1; flex-wrap:wrap; align-items:center; min-width:240px; }}
+.learn-now {{ display:flex; gap:14px; align-items:center; padding:14px 16px; margin-bottom:12px; border-radius:10px;
+              background:rgba(0,135,86,.08); border:1.5px solid var(--success); font-size:15px; }}
+.pulse {{ width:14px; height:14px; border-radius:50%; background:var(--success); flex-shrink:0;
+          animation:ec-pulse 1.4s ease-in-out infinite; }}
+@keyframes ec-pulse {{ 0%,100% {{ opacity:1; transform:scale(1); }} 50% {{ opacity:.35; transform:scale(.75); }} }}
+.learn-card {{ border:1.5px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:10px; }}
+.learn-btns {{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }}
 .tag-edit select {{ width:auto; }}
 .btn {{ padding:9px 16px; border:none; border-radius:8px; background:var(--primary-d); color:#fff;
         font-size:14px; font-weight:600; cursor:pointer; }}
