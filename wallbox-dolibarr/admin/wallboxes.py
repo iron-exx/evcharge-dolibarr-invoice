@@ -29,6 +29,9 @@ _CSS = """
 .cmds .btn-2nd{width:100%;margin-top:8px}
 .log td{font:11px ui-monospace,monospace;vertical-align:top;word-break:break-all}
 .log .in{color:var(--primary-d)}.log .out{color:var(--success)}
+.quick{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.quick .btn-save{margin:0}
+details.adv>summary{cursor:pointer;padding:12px 4px;color:var(--muted);font-size:13px;font-weight:600}
 .inline{display:flex;gap:6px;align-items:center}.inline input{flex:1;min-width:90px}
 .inline button{padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer}
 """
@@ -333,6 +336,28 @@ def register(app: web.Application, ctx) -> None:
             box('clear_cache', '', 'Leeren'),
         ]) + '</div>'
 
+    def quick_html(cp_id, connected):
+        """Die drei Knöpfe, die man im Alltag braucht — ohne Fachbegriffe."""
+        if not connected:
+            return _msg('warn', 'Die Wallbox ist gerade nicht verbunden – Befehle gehen erst wieder, wenn sie online ist.')
+        action = f'/wallbox/{quote(cp_id, safe="")}/command'
+        active = [s for s in ctx.session_manager.get_active_ocpp_sessions() if s.get('charge_point_id') == cp_id]
+
+        def button(cmd, label, question, fields=''):
+            return (f'<form method="POST" action="{action}" {_confirm(question)}><input type="hidden" name="cmd" '
+                    f'value="{cmd}"><input type="hidden" name="quick" value="1">{fields}'
+                    f'<button class="btn-save" type="submit">{_e(label)}</button></form>')
+        buttons = []
+        if active:
+            buttons.append(button('remote_stop', 'Laden beenden', 'Laufende Ladung jetzt beenden?',
+                                  f'<input type="hidden" name="transaction_id" value="{active[0]["id"]}">'))
+        buttons.append(button('reset', 'Wallbox neu starten', 'Wallbox neu starten? Eine laufende Ladung wird beendet.',
+                              '<input type="hidden" name="type" value="Soft">'))
+        buttons.append(button('unlock', 'Stecker entriegeln', 'Stecker entriegeln? Eine laufende Ladung endet.',
+                              '<input type="hidden" name="connector_id" value="1">'))
+        return ('<div class="quick">' + ''.join(buttons) + '</div><div class="hint">Hilft meist, wenn eine Wallbox '
+                'hängt: erst „Wallbox neu starten“. Steckt das Kabel fest: „Stecker entriegeln“.</div>')
+
     def config_html(cp_id, connected):
         action = f'/wallbox/{quote(cp_id, safe="")}/config'
         cached = ctx.cp_config.get(cp_id)
@@ -418,10 +443,15 @@ def register(app: web.Application, ctx) -> None:
                 f'<form method="POST" action="/wallbox/{enc}/delete" '
                 f'{_confirm("Wallbox löschen? Sie wird sofort getrennt und abgewiesen.")}>'
                 '<button class="btn-2nd" type="submit" style="width:100%">Löschen</button></form></div>'
-                '</div><div class="card"><div class="card-title">Fernbefehle</div>' + commands_html(cp_id, st, connected) +
+                '</div><div class="card"><div class="card-title">Schnellaktionen</div>' + quick_html(cp_id, connected) +
+                '</div><details class="adv" id="adv"><summary>Erweitert – für Fachleute: alle Fernbefehle, '
+                'Wallbox-Konfiguration, OCPP-Protokoll</summary>'
+                '<div class="card"><div class="card-title">Fernbefehle</div>' + commands_html(cp_id, st, connected) +
                 '</div><div class="card"><div class="card-title">Konfiguration der Wallbox</div>' +
                 config_html(cp_id, connected) +
-                '</div><div class="card"><div class="card-title">OCPP-Protokoll</div>' + log_html(st))
+                '</div><div class="card"><div class="card-title">OCPP-Protokoll</div>' + log_html(st) +
+                '</div></details><script>if(location.hash==="#adv")document.getElementById("adv").open=true;</script>'
+                '<div>')
         return page(request, c.get('name') or cp_id, body)
 
     # -- Fernbefehle / Konfiguration -----------------------------------------------------
@@ -447,6 +477,8 @@ def register(app: web.Application, ctx) -> None:
         if spec is None:
             raise web.HTTPBadRequest(text='Unbekannter Befehl')
         title, _, build, describe = spec
+        if not form.get('quick'):
+            back += '#adv'
         try:
             payload = build(form)
         except ValueError as exc:
@@ -464,7 +496,7 @@ def register(app: web.Application, ctx) -> None:
     async def configure(request):
         cp_id = find(request.match_info['cp_id'])['id']
         form = await request.post()
-        back = f'/wallbox/{quote(cp_id, safe="")}'
+        back = f'/wallbox/{quote(cp_id, safe="")}#adv'
         action = form.get('action')
         if action == 'get':
             result, error = await send(request, cp_id, call.GetConfiguration())

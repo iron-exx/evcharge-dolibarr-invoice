@@ -54,10 +54,13 @@ FIELDS = (
 _RESTART = 'Einstellungen'
 ROLE_LABELS = {'buchhaltung': 'Buchhaltung', 'mitarbeiter': 'Mitarbeiter'}
 _HOT = ('log_level', 'tax_flat_price')    # wirken ohne Neustart
+# Was im Alltag jemand ändert — der Rest steht unter „Erweitert“
+COMMON_FIELDS = ('tax_flat_price', 'api.transmit_interval', 'min_session_kwh', 'max_session_hours')
 BACKUP_FILES = ('options.json', 'sessions.db', 'admin.json', 'users.json', 'secret.key', 'audit.log')
 _MAX_RESTORE_BYTES = 200 * 1024 * 1024
 
 _CSS = """
+details.adv>summary{cursor:pointer;padding:10px 0;color:var(--muted);font-size:13px;font-weight:600}
 input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;margin-right:6px}
 .inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .inline button{padding:5px 10px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface2);
@@ -314,12 +317,16 @@ def register(app: web.Application, ctx) -> None:
     def settings_body(request, values=None, error='', info='', reveal=None):
         values = values or {}
         level = values.get('log_level') or ctx.config.get('log_level') or 'INFO'
-        inputs = ''
+        inputs = advanced = ''
         for field, label, default, lo, hi, _cast in FIELDS:
             current = values.get(field, _get(ctx.config, field))
-            inputs += (f'<div><label class="flabel">{_e(label)}</label><input name="{_e(field)}" inputmode="decimal" '
+            html_ = (f'<div><label class="flabel">{_e(label)}</label><input name="{_e(field)}" inputmode="decimal" '
                        f'value="{_e(current if current is not None else "")}" placeholder="{_e(default)}">'
                        f'<div class="hint">{lo}–{hi}, Vorgabe {default}</div></div>')
+            if field in COMMON_FIELDS:
+                inputs += html_
+            else:
+                advanced += html_
         recommended = ctx.config.get('ocpp_apply_recommended_config')
         api = ctx.config.get('api') or {}
         state = ctx.api_state or {}
@@ -359,12 +366,13 @@ def register(app: web.Application, ctx) -> None:
         return (f"""{_msg('err', error)}{_msg('ok', info)}{update}{_restart_box(ctx)}
 {_env_warning(['log_level'] + [f for f, *_ in FIELDS])}
 <form method="POST" action="/settings">
-  <div class="grid2">
+  <div class="grid2">{inputs}</div>
+  <details class="adv"><summary>Erweitert – Feineinstellungen, meist nicht nötig</summary><div class="grid2">
     <div><label class="flabel">Protokoll-Detailgrad</label><select name="log_level">{''.join(
         f'<option{" selected" if lv == level else ""}>{lv}</option>' for lv in VALID_LOG_LEVELS)}</select>
       <div class="hint">wirkt sofort</div></div>
-    {inputs}
-  </div>
+    {advanced}
+  </div></details>
   <label class="hint"><input type="checkbox" name="ocpp_apply_recommended_config" value="1"
     {'checked' if recommended else ''}> Empfohlene OCPP-Einstellungen nach jedem Wallbox-Start setzen</label>
   <div class="hint">Detailgrad und Strompreis-Pauschale wirken sofort, der Rest nach einem Neustart. Leere Felder = Vorgabe.
