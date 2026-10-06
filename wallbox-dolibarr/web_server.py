@@ -1600,11 +1600,9 @@ def create_app(session_manager, config, api_state):
     # -- GET / ---------------------------------------------------------------
     async def handle_get(request):
         base_href = request.headers.get('X-Ingress-Path', '').rstrip('/')
-        msg = request.rel_url.query.get('msg', '')
-        t   = request.rel_url.query.get('t', '')
-        msg_html = f'<div class="msg {t}">{msg}</div>' if msg else ''
+        # Früher ?msg=/?t= — ungefiltert ins HTML (Reflected XSS) und von nichts mehr benutzt
         return web.Response(
-            text=_build_form_page(session_manager, config, msg_html, base_href=base_href, api_state=api_state),
+            text=_build_form_page(session_manager, config, '', base_href=base_href, api_state=api_state),
             content_type='text/html'
         )
 

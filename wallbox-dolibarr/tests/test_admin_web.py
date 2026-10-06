@@ -270,3 +270,10 @@ async def test_nav_links_work_from_nested_pages(client):
     page = await (await client.get('/setup/5')).text()
     assert '<base href="/">' in page
     assert (await client.get('/history')).status == 200
+
+
+async def test_start_page_message_is_escaped(client):
+    """?msg= / ?t= kommen aus der URL — nie ungefiltert ins HTML (Reflected XSS)."""
+    await _setup_admin(client)
+    page = await (await client.get('/?msg=<script>alert(1)</script>&t=ok"><img src=x onerror=alert(2)>')).text()
+    assert '<script>alert(1)</script>' not in page and 'onerror=alert(2)>' not in page
