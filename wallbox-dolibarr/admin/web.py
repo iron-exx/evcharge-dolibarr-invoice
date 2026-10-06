@@ -20,6 +20,7 @@ from aiohttp import web
 
 import env_config
 from placeholders import find_placeholders
+from utils import proxy
 
 from . import validate
 from .dolibarr_check import check_dolibarr
@@ -115,7 +116,8 @@ def _e(value) -> str:
 
 
 def _client_key(request) -> str:
-    return request.remote or 'unbekannt'
+    # hinter dem TLS-Proxy die echte Adresse — sonst sperrt ein Angreifer alle aus
+    return proxy.client_ip(request.remote or '', request.headers.get('X-Forwarded-For')) or 'unbekannt'
 
 
 def _secure(request) -> bool:
@@ -260,7 +262,15 @@ def _msg(kind, text):
     return f'<div class="msg {kind}">{text}</div>' if text else ''
 
 
+def _security_profile() -> str:
+    return ('Security Profile 2 (TLS + Passwort) – Verbindung verschlüsselt über ' + _e(proxy.domain())
+            if proxy.domain() else 'Security Profile 1 (Passwort, unverschlüsselt – nur im LAN/VPN)')
+
+
 def _ws_url(ctx, request) -> str:
+    public = proxy.public_ws_url()
+    if public:          # Heimladen: verschlüsselt über den TLS-Proxy
+        return public
     host = request.url.host or '<host-ip>'
     return f'ws://{host}:{ctx.ocpp_port}/'
 
@@ -543,7 +553,7 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
         rows.append(f'<li><b>Karten</b> {len(ctx.session_manager.list_tags())} bekannt</li>')
         body = (_restart_box(ctx) + f'<ul class="checks">{"".join(rows)}</ul>' + wallboxes +
                 '<div class="hint">In der Wallbox (Alfen: ACE Service Installer → OCPP) Backend-URL, '
-                'Charge-Point-ID und Passwort eintragen, Security Profile 1 (Basic Auth).</div>'
+                'Charge-Point-ID und Passwort eintragen, ' + _security_profile() + '.</div>'
                 '<a class="btn-save" style="text-decoration:none" href="/">Zur Übersicht</a>')
         return _page(ctx, request, 'Fertig', body, step=5)
 

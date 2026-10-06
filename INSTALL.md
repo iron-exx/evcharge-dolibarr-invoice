@@ -275,7 +275,9 @@ sauber zurücksetzen will: `git fetch && git reset --hard origin/main`
 ### 3.5.7 — Firewall
 
 Proxmox → Container → Firewall: `8099/tcp` nur aus dem Admin-/VPN-Netz, `9000/tcp` nur
-aus dem Wallbox-Netz. Beide nie ins Internet. Details:
+aus dem Wallbox-Netz. Beide nie ins Internet. **Heimladen** (Wallboxen bei Mitarbeitern):
+zusätzlich `443/tcp` und `80/tcp` für den TLS-Proxy freigeben —
+[docs/OCPP-WALLBOX-ANBINDEN.md → 9](docs/OCPP-WALLBOX-ANBINDEN.md#9--heimladen-wallbox-beim-mitarbeiter-verschlüsselt-über-das-internet). Details:
 [wallbox-dolibarr/README.md → Standalone](wallbox-dolibarr/README.md#standalone-in-docker--ohne-home-assistant).
 
 ### 3.5.8 — Fehlerbilder aus der Praxis

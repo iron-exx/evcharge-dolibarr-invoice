@@ -169,10 +169,12 @@ Per OCPP in acht Schritten bis zur ersten abgerechneten Ladung:
 
 - **Karten-IDs** nur als SHA-256-Hash gespeichert; Klartext nie im Log, nur flüchtig im Lernmodus
 - **Private Ladungen** erreichen Dolibarr nie — geprüft wird die aktuelle Einordnung beim Senden
-- **OCPP** mit Passwort je Wallbox (Basic Auth, Security Profile 1); unbekannte Wallboxen und Karten werden abgewiesen
+- **OCPP** mit Passwort je Wallbox; unbekannte Wallboxen und Karten werden abgewiesen, Passwort-Raten wird gesperrt
+- **Heimladen verschlüsselt**: Wallboxen bei Mitarbeitern verbinden sich über `wss://` (TLS, Security Profile 2) mit
+  automatischem Zertifikat; die Verwaltung bleibt dabei aus dem Internet gesperrt
 - **Verwaltung** nur angemeldet: gehashte Passwörter, Sperre nach Fehlversuchen, CSRF-Schutz, Änderungsprotokoll
 - **Dolibarr** über ein gemeinsames API-Token; Modul-Deinstallation löscht keine Daten
-- Empfohlen: Web-UI und OCPP-Port nur im LAN/VPN, nie direkt ins Internet
+- Empfohlen: Web-UI und Port 9000 nur im LAN/VPN; über das Internet nur verschlüsselt über den TLS-Proxy
 
 ## 🗂️ Projektstruktur
 

@@ -17,7 +17,7 @@ from ocpp_server.settings import sanitize_wallbox_id
 
 from . import validate
 from .store import mask
-from .web import _e, _env_warning, _msg, _page, _redirect, _restart_box, _ws_url
+from .web import _e, _env_warning, _msg, _page, _redirect, _restart_box, _security_profile, _ws_url
 
 PLACEHOLDER_ID = 'ACE0123456'
 _RESTART = 'OCPP-Wallboxen'
@@ -188,7 +188,7 @@ def register(app: web.Application, ctx) -> None:
         body = (_restart_box(ctx) + mode_note() + table +
                 '<a class="btn-save" style="text-decoration:none" href="/wallboxes/new">Wallbox hinzufügen</a>'
                 f'<div class="hint">Backend-URL für alle Wallboxen: <code>{_e(_ws_url(ctx, request))}</code>'
-                ' (die Charge-Point-ID hängt die Wallbox selbst an).</div>' + pending_card + _LIVE_JS)
+                f' (die Charge-Point-ID hängt die Wallbox selbst an) · {_security_profile()}.</div>' + pending_card + _LIVE_JS)
         return page(request, 'Wallboxen', body)
 
     async def dismiss(request):

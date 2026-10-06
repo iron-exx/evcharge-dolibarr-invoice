@@ -158,7 +158,10 @@ verändert.
 - Der Karten-Hash im Log ist **pseudonymisiert, nicht anonymisiert**: `hash_rfid` ist ein
   ungesalzenes SHA-256 über eine 8-stellige Hex-ID, also mit einer Rainbow-Table
   umkehrbar. Für die DSGVO-Bewertung zählt der Log damit als personenbezogen.
-- Für TLS einen Reverse-Proxy (z.B. NGINX-Addon) oder ein VPN vorschalten.
+- **Über das Internet (Heimladen) nur verschlüsselt:** standalone das Compose-Profil `tls`
+  (Caddy, automatisches Zertifikat, `wss://`), siehe
+  [docs/OCPP-WALLBOX-ANBINDEN.md → 9](../docs/OCPP-WALLBOX-ANBINDEN.md#9--heimladen-wallbox-beim-mitarbeiter-verschlüsselt-über-das-internet).
+  Im HA-Addon z.B. das NGINX-Addon oder ein VPN vorschalten.
 - **Den Port niemals ins Internet freigeben.**
 - Karten-IDs stehen nie im Klartext im Log — dort nur der Hash-Präfix. Der Klartext einer
   abgelehnten Karte erscheint ausschließlich flüchtig in der Ingress-UI.

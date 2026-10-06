@@ -19,6 +19,7 @@ from ocpp_server.central_system import CentralSystemChargePoint, CentralSystemDe
 from ocpp_server.redact import install as _install_redaction
 from ocpp_server.settings import OcppSettings
 from placeholders import is_placeholder_password
+from utils import proxy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -133,9 +134,11 @@ class OcppServer:
     async def _process_request(self, connection, request):
         cp_id = charge_point_id_from_path(request.path)
         cp_cfg = self._settings.find(cp_id)
+        peer = connection.remote_address[0] if connection.remote_address else '?'
+        ip = proxy.client_ip(peer, request.headers.get('X-Forwarded-For'))
         if cp_cfg is None:
             if cp_id:
-                self._note_pending(cp_id[:_MAX_LOGGED_CP_ID], connection.remote_address)
+                self._note_pending(cp_id[:_MAX_LOGGED_CP_ID], (ip,))
             _LOGGER.warning("Unbekannte Charge-Point-ID %s – in ocpp_charge_points eintragen (Verbindung abgewiesen)",
                             safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.NOT_FOUND, "Unknown charge point\n")
@@ -143,8 +146,11 @@ class OcppServer:
             _LOGGER.error("Wallbox %s abgewiesen: Passwort ist noch der Platzhalter aus der Vorlage "
                           "— in ocpp_charge_points ein eigenes setzen", safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
+        if not cp_cfg.password and proxy.via_proxy(peer):
+            _LOGGER.error("Wallbox %s ohne Passwort über das Internet abgewiesen — für den Zugang über "
+                          "TLS_DOMAIN ein Passwort setzen", safe_cp_id_for_log(cp_id))
+            return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
         if cp_cfg.password:
-            ip = connection.remote_address[0] if connection.remote_address else '?'
             wait = self._limiter.locked_for(ip)
             if wait:
                 _LOGGER.warning("Wallbox %s von %s: zu viele falsche Passwörter — noch %d s gesperrt",

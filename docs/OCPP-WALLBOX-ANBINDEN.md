@@ -23,7 +23,7 @@ Unbekannte Karten laden nicht.
 | Spricht die Wallbox **OCPP 1.6J** (JSON über WebSocket)? | Siehe Tabelle „Unterstützte Wallboxen“ in der [README](../wallbox-dolibarr/README.md#unterstützte-wallboxen). OCPP 2.0.1 allein reicht nicht. |
 | Hängt die Wallbox schon an einem **anderen OCPP-Backend** (Cloud, Abrechnungsdienst)? | Eine Wallbox kennt nur **ein** Backend. Wird ExpenseCharge eingetragen, ist das andere weg. |
 | Kommst du an die **Installateur-Einstellungen**? | Bei Alfen: ACE Service Installer mit Installateur-Zugang. |
-| Erreicht die Wallbox den Server auf **Port 9000/tcp**? | Gleiches Netz/VLAN oder Routing, Firewall-Freigabe nur für das Wallbox-Netz. |
+| Erreicht die Wallbox den Server auf **Port 9000/tcp**? | Gleiches Netz/VLAN oder Routing, Firewall-Freigabe nur für das Wallbox-Netz. **Wallbox beim Mitarbeiter zu Hause:** verschlüsselt über das Internet, siehe [Schritt 9](#9--heimladen-wallbox-beim-mitarbeiter-verschlüsselt-über-das-internet). |
 | Hat der Server eine **feste IP**? | Die IP steht fest in der Wallbox. Ändert sie sich (DHCP), ist die Wallbox weg. |
 | Ist das **Dolibarr-Modul** eingerichtet? | Token gesetzt, Karten Mitarbeitern zugeordnet — siehe [INSTALL.md, Schritt 2](../INSTALL.md#2--dolibarr-modul-installieren). |
 
@@ -233,3 +233,69 @@ ExpenseCharge entscheidet nur, **ob** übertragen wird.
 - **Sicherheit:** Port 9000 nur aus dem Wallbox-Netz, nie aus dem Internet. Ohne Passwort
   (Security Profile 0) kann jedes Gerät im Netz Ladungen erfinden — immer ein Passwort
   setzen.
+
+---
+
+## 9 — Heimladen: Wallbox beim Mitarbeiter, verschlüsselt über das Internet
+
+Steht die Wallbox beim Mitarbeiter zu Hause und ExpenseCharge bei euch, läuft die
+Verbindung über das Internet. Ohne Verschlüsselung gingen Wallbox-Passwort und Ladedaten
+dort im Klartext durch — deshalb gibt es einen vorgeschalteten TLS-Proxy (Caddy), der sich
+sein Zertifikat selbst holt (Let's Encrypt). Die Wallbox verbindet sich dann mit
+`wss://…` (OCPP **Security Profile 2**: TLS + Passwort).
+
+```
+Wallbox zu Hause ──wss:// (TLS, Port 443)──► Router ──► Caddy ──► ExpenseCharge ──https──► Dolibarr
+```
+
+**Voraussetzungen**
+
+| Was | Beispiel |
+|---|---|
+| Öffentlicher DNS-Name, der auf euren Internetanschluss zeigt (feste IP oder DynDNS) | `ladung.firma.de` |
+| Router/Firewall leitet **443/tcp** und **80/tcp** an den ExpenseCharge-Server weiter (80 nur fürs Zertifikat) | |
+| Wallbox kann `wss://` bzw. Security Profile 2 | die meisten OCPP-1.6J-Wallboxen; manche verlangen, dass man das Wurzelzertifikat von Let's Encrypt („ISRG Root X1“) hochlädt |
+
+**Port 9000 nie im Router weiterleiten** — der bleibt fürs Firmennetz.
+
+**Einrichten**
+
+1. In der `.env` ergänzen:
+
+   ```bash
+   COMPOSE_PROFILES=tls
+   TLS_DOMAIN=ladung.firma.de
+   ```
+
+2. Starten und das Zertifikat abwarten:
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f tls          # „certificate obtained successfully“
+   ```
+
+3. **Prüfen, dass die Verwaltung von außen gesperrt ist:** am Handy *ohne WLAN*
+   `https://ladung.firma.de` öffnen → „Die Verwaltung ist nur aus dem Firmennetz erreichbar.“
+   Aus dem Firmennetz bzw. VPN erscheint wie gewohnt die Anmeldung.
+   Erscheint von außen die Anmeldung, reicht Docker die echte Absenderadresse nicht durch
+   (z.B. bei IPv6) — dann `ADMIN_FROM` auf eure Netze setzen, z.B.
+   `ADMIN_FROM=192.168.101.0/24`, und neu starten.
+
+4. **Wallbox beim Mitarbeiter** einstellen:
+
+   | Feld | Wert |
+   |---|---|
+   | Backend-URL | `wss://ladung.firma.de/ocpp/` (die Oberfläche zeigt genau diese Adresse an) |
+   | Security Profile | **2** (TLS + Basic Auth) |
+   | Charge-Point-ID / Benutzer | wie in Schritt 2 |
+   | Passwort | wie in Schritt 2 — **Pflicht**: ohne Passwort wird eine Wallbox über das Internet abgewiesen |
+
+   Wallboxen im Firmennetz dürfen weiter `ws://<Server-IP>:9000/` nutzen.
+
+**Was zusätzlich schützt**
+
+- Nach 5 falschen Passwörtern ist die **echte** Absenderadresse 5 Minuten gesperrt (der Proxy
+  reicht sie durch; gefälschte Angaben anderer Absender werden ignoriert).
+- Die Verwaltung ist über den Namen nur aus privaten Netzen erreichbar (`ADMIN_FROM`).
+- Das Zertifikat erneuert Caddy selbst; es liegt in `data/caddy/`.
+

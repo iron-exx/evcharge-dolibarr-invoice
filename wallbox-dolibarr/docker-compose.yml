@@ -36,6 +36,8 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       # Nur zur Information für die Warnung "UI ohne Anmeldung im Netz".
       WEB_BIND: "${WEB_BIND:-127.0.0.1}"
+      # Heimladen über das Internet (Profil "tls" unten): öffentlicher Name
+      TLS_DOMAIN: "${TLS_DOMAIN:-}"
 
     volumes:
       # Enthält sessions.db (SQLite-Puffer) und optional options.json.
@@ -53,3 +55,25 @@ services:
       # unverändert, damit git pull nie blockiert.
       # Nach Änderung: docker compose up -d --force-recreate
       - "${WEB_BIND:-127.0.0.1}:8099:8099"
+
+  # ── Heimladen: verschlüsselt über das Internet (TLS, OCPP Security Profile 2) ──
+  # Nur aktiv mit COMPOSE_PROFILES=tls und TLS_DOMAIN in der .env, siehe
+  # docs/OCPP-WALLBOX-ANBINDEN.md → „Heimladen“. Caddy holt das Zertifikat
+  # selbst (Let's Encrypt; Port 80 und 443 müssen aus dem Internet erreichbar
+  # sein). Wallboxen: wss://<TLS_DOMAIN>/ocpp/ — die Verwaltung bleibt nur aus
+  # dem Firmennetz erreichbar (ADMIN_FROM).
+  tls:
+    image: caddy:2-alpine
+    container_name: expensecharge-tls
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on: [expensecharge]
+    environment:
+      TLS_DOMAIN: "${TLS_DOMAIN:-}"
+      ADMIN_FROM: "${ADMIN_FROM:-private_ranges}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data        # Zertifikate — überstehen Neustarts
