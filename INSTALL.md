@@ -102,7 +102,7 @@ Die Authentifizierung läuft über ein **einzelnes gemeinsames Token** (Shared S
 ### 3.3 — Ingress-UI
 
 Über *Add-on öffnen* erreichbar, zwei Tabs:
-- **⚡ Erfassen** — Live-Block (Wallbox-Status + laufende Sessions, JS-Polling alle 5 s) + manuelles Nachtragen + Sofort-Übertragen-Button
+- **⚡ Übersicht** — Live-Block (Wallbox-Status + laufende Ladungen, JS-Polling alle 5 s) + manuelles Nachtragen + Sofort-Übertragen-Button
 - **📋 Verlauf** — Historie pro Monat + CSV-Export
 - Übertragungs-Status pro Session
 

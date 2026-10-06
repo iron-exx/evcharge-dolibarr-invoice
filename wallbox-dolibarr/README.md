@@ -12,7 +12,7 @@ Erfasst RFID-basierte Ladevorgänge einer Wallbox und schreibt sie direkt in die
 - End-Trigger via Status, Leistung/Zähler-Idle, externer Entity **oder** Zweit-Tap (`tag_toggle`)
 - Automatische Übertragung an Dolibarr `receive.php` mit Token-Auth (Header `DOLAPIKEY`)
 - Web-UI (Ingress):
-  - **⚡ Erfassen** — Startseite mit eingebettetem Live-Block (laufende Sessions + Wallbox-Status, flackerfreies JS-Polling alle 5 s über `/live.json`) + manuelles Erfassen
+  - **⚡ Übersicht** — Startseite mit eingebettetem Live-Block (laufende Ladungen + Wallbox-Status, flackerfreies JS-Polling alle 5 s über `/live.json`) + manuelles Erfassen
   - **📋 Verlauf** — Historie + CSV-Export
 
 ## Installation
