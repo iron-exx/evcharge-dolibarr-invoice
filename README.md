@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Addon-2.2.0-22c55e" alt="Addon 2.2.0">
+  <img src="https://img.shields.io/badge/Addon-2.3.0-22c55e" alt="Addon 2.3.0">
   <img src="https://img.shields.io/badge/Dolibarr--Modul-2.3.6-14b8a6" alt="Dolibarr-Modul 2.3.6">
   <img src="https://img.shields.io/badge/Dolibarr-20–22-0f766e" alt="Dolibarr 20–22">
   <img src="https://img.shields.io/badge/OCPP-1.6J-0e7490" alt="OCPP 1.6J">

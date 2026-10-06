@@ -37,10 +37,12 @@ details.adv>summary{cursor:pointer;padding:12px 4px;color:var(--muted);font-size
 """
 
 _LIVE_JS = """<script>
+var DE={Available:'frei',Preparing:'Auto angesteckt',Charging:'lädt',SuspendedEV:'pausiert (Auto)',
+ SuspendedEVSE:'pausiert (Wallbox)',Finishing:'Ladung beendet',Reserved:'reserviert',Unavailable:'gesperrt',Faulted:'Störung'};
 setInterval(function(){fetch('/live.json').then(function(r){return r.json();}).then(function(d){
  (d.charge_points||[]).forEach(function(c){
   var el=document.querySelector('[data-cp="'+CSS.escape(c.id)+'"] .st'); if(!el) return;
-  el.textContent=(c.connected?'verbunden':'getrennt')+(c.status?' · '+c.status:'')+(c.last_seen?' · '+c.last_seen.replace('T',' '):'');
+  el.textContent=(c.connected?'verbunden':'getrennt')+(c.status?' · '+(DE[c.status]||c.status):'')+(c.last_seen?' · '+c.last_seen.replace('T',' '):'');
  });}).catch(function(){});},5000);
 </script>"""
 
@@ -121,6 +123,12 @@ COMMANDS = {
 }
 
 
+# OCPP-Zustand → Klartext
+STATUS_DE = {'Available': 'frei', 'Preparing': 'Auto angesteckt', 'Charging': 'lädt', 'SuspendedEV': 'pausiert (Auto)',
+             'SuspendedEVSE': 'pausiert (Wallbox)', 'Finishing': 'Ladung beendet', 'Reserved': 'reserviert',
+             'Unavailable': 'gesperrt', 'Faulted': 'Störung'}
+
+
 def _status_text(st: dict) -> str:
     if not st:
         return 'noch nie verbunden'
@@ -128,7 +136,7 @@ def _status_text(st: dict) -> str:
     main = connectors.get('1') or next(iter(connectors.values()), {})
     parts = ['verbunden' if st.get('connected') else 'getrennt']
     if main.get('status'):
-        parts.append(main['status'])
+        parts.append(STATUS_DE.get(main['status'], main['status']))
     if st.get('last_seen'):
         parts.append(st['last_seen'].replace('T', ' '))
     return ' · '.join(parts)
@@ -494,7 +502,8 @@ poll();}})();
                    '<div class="hint">Wird nur jetzt angezeigt – gleich in die Wallbox eintragen.</div>' if pw else
                    f'<div class="hint">Passwort: {_e(mask(c.get("password")))}</div>')
         conn_rows = ''.join(
-            f'<tr><td>{_e(n)}</td><td>{_e(x.get("status"))}</td><td>{_e(x.get("error_code"))}</td>'
+            f'<tr><td>{_e(n)}</td><td>{_e(STATUS_DE.get(x.get("status"), x.get("status")))}</td>'
+            f'<td>{_e("–" if x.get("error_code") in (None, "NoError") else x.get("error_code"))}</td>'
             f'<td>{_e(x.get("energy_kwh"))}</td><td>{_e(x.get("transaction_id") or "")}</td></tr>'
             for n, x in sorted((st.get('connectors') or {}).items()))
         device = ' '.join(x for x in (st.get('vendor'), st.get('model')) if x)
