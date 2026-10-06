@@ -152,3 +152,25 @@ async def test_wallbox_id_with_space_accepted(env):
                     {'cp_id': 'W1', 'name': 'Wallbox 1', 'wallbox_id': 'Wallbox 1', 'password': ''})
     assert r.status == 302
     assert [c for c in _saved(env) if c['id'] == 'W1'][0]['wallbox_id'] == 'Wallbox_1'
+
+
+async def test_setup_assistant_and_live_status(env):
+    c = env['client']
+    page = await (await c.get('/wallbox/CP1')).text()
+    assert 'Wallbox einrichten' in page and 'Alfen' in page and 'status.json' in page, "noch nie verbunden → Assistent"
+    st = await (await c.get('/wallbox/CP1/status.json')).json()
+    assert st['connected'] is False and st['auth_failed_at'] is None
+    with pytest.raises(websockets.InvalidStatus):
+        async with connect_sim(env['port'], 'CP1', 'falsches-passwort-xyz'):
+            pass
+    st = await (await c.get('/wallbox/CP1/status.json')).json()
+    assert st['auth_failed_at'], "falsches Passwort wird gemeldet"
+    with pytest.raises(websockets.InvalidStatus):
+        async with connect_sim(env['port'], 'ACE7777'):
+            pass
+    assert 'ACE7777' in (await (await c.get('/wallbox/CP1/status.json')).json())['other_ids']
+    async with connect_sim(env['port'], 'CP1', CP_PW) as cp:
+        await cp.call(call.BootNotification(charge_point_vendor='Alfen BV', charge_point_model='NG910'))
+        st = await (await c.get('/wallbox/CP1/status.json')).json()
+        assert st['connected'] and st['device'] == 'Alfen BV NG910'
+    assert 'Wallbox einrichten' not in await (await c.get('/wallbox/CP1')).text(), "nach erster Verbindung weg"

@@ -5,7 +5,7 @@ Schreibend nur angemeldet — das erzwingt die Middleware in admin.web.
 """
 import asyncio
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from aiohttp import web
@@ -43,6 +43,26 @@ setInterval(function(){fetch('/live.json').then(function(r){return r.json();}).t
   el.textContent=(c.connected?'verbunden':'getrennt')+(c.status?' · '+c.status:'')+(c.last_seen?' · '+c.last_seen.replace('T',' '):'');
  });}).catch(function(){});},5000);
 </script>"""
+
+# Hersteller → wo man die Werte einträgt (die Werte selbst sind für alle gleich)
+VENDORS = (
+    ('alfen', 'Alfen Eve', 'Im <b>ACE Service Installer</b> (Installateur-Zugang) an der Wallbox anmelden → '
+     '<b>Connectivity → Backoffice/OCPP</b>. Die Kennung ist die Seriennummer (steht schon drin). '
+     'Autorisierung auf <b>Backoffice</b> stellen, speichern.'),
+    ('abl', 'ABL eMH2/eMH3/eMC', 'Laptop direkt an die Wallbox, Web-Oberfläche <code>http://169.254.1.1:8300/</code> '
+     '→ <b>Backend</b>. (eMH1 kann kein OCPP.)'),
+    ('keba', 'Keba P30 x / P40', 'Web-Oberfläche der Wallbox → <b>Central System Address/Path</b>.'),
+    ('goe', 'go-e Charger', 'go-e-App → <b>Internet → OCPP</b> (Firmware ab 59.4).'),
+    ('mennekes', 'Mennekes AMTRON/AMEDIO', 'Web-Oberfläche der Wallbox → <b>Backend</b>.'),
+    ('compleo', 'Compleo eBOX', '<b>eCONFIG-App</b> (Bluetooth) → OCPP.'),
+    ('easee', 'Easee', 'OCPP über das Easee-Portal bzw. den Easee-Support freischalten lassen („native OCPP“), '
+     'dann die Werte unten eintragen.'),
+    ('zaptec', 'Zaptec', 'Zaptec-Portal → Installation → <b>„Allow OCPP 1.6J“</b>, dann die Werte unten.'),
+    ('wallbox', 'Wallbox Pulsar/Copper', 'myWallbox-App/-Portal → OCPP. Manche Modelle können kein Passwort – '
+     'dann nur im Firmennetz/VPN betreiben.'),
+    ('other', 'Andere', 'In den Installateur-Einstellungen der Wallbox den Punkt <b>OCPP</b>, <b>Backend</b> oder '
+     '<b>Central System</b> suchen.'),
+)
 
 _TRIGGERS = ('BootNotification', 'Heartbeat', 'StatusNotification', 'MeterValues',
              'DiagnosticsStatusNotification', 'FirmwareStatusNotification')
@@ -302,6 +322,57 @@ def register(app: web.Application, ctx) -> None:
         raise web.HTTPFound('/wallboxes')
 
     # -- Detail ------------------------------------------------------------------------
+    def setup_html(c, request):
+        """Für eine Wallbox, die sich noch nie gemeldet hat: was wo eintragen + Live-Status."""
+        cp_id, enc = c['id'], quote(c['id'], safe='')
+        options = ''.join(f'<option value="{k}">{_e(n)}</option>' for k, n, _ in VENDORS)
+        texts = ''.join(f'<div class="vendor" data-v="{k}" hidden>{t}</div>' for k, _, t in VENDORS)
+        field = lambda i, label, value: (f'<label class="flabel">{label}</label><div class="copy"><input id="{i}" readonly '
+                                         f'value="{_e(value)}"><button type="button" onclick="ecCopy(\'{i}\')">'
+                                         'Kopieren</button></div>')
+        return (f"""<div class="setup"><div class="flabel" style="font-size:13px">Wallbox einrichten</div>
+<div id="live" class="live wait">⏳ Warte auf die Wallbox … (diese Anzeige aktualisiert sich selbst)</div>
+<label class="flabel">1. Hersteller wählen</label><select id="vendor">{options}</select>{texts}
+<label class="flabel" style="margin-top:12px">2. Diese Werte in der Wallbox eintragen</label>
+{field('s-url', 'Server-Adresse (Backend-URL)', _ws_url(ctx, request))}
+{field('s-id', 'Wallbox-Kennung (Charge-Point-ID / Benutzer)', cp_id)}
+<div class="hint">Passwort: das beim Anlegen angezeigte. Vergessen? Unten <b>Bearbeiten → neues Passwort erzeugen</b>.
+ · {_security_profile()} · Protokoll: OCPP 1.6 JSON</div>
+<label class="flabel" style="margin-top:12px">3. Speichern – die Wallbox meldet sich meist innerhalb einer Minute</label>
+<script>
+(function(){{var sel=document.getElementById('vendor');
+function show(){{document.querySelectorAll('.vendor').forEach(function(d){{d.hidden=d.dataset.v!==sel.value;}});}}
+sel.onchange=show;show();
+var live=document.getElementById('live');
+function poll(){{fetch('/wallbox/{enc}/status.json').then(function(r){{return r.json();}}).then(function(s){{
+ if(s.connected){{live.className='live ok';live.textContent='✅ Verbunden'+(s.device?' – '+s.device:'')+'. Fertig!';
+   setTimeout(function(){{location.reload();}},2500);return;}}
+ if(s.other_ids.length){{live.className='live err';live.innerHTML='Die Wallbox meldet sich mit der Kennung <b>'+
+   s.other_ids[0].replace(/[<>&"]/g,'')+'</b> statt {_e(cp_id)}. <a href="/wallboxes/new?cp_id='+
+   encodeURIComponent(s.other_ids[0])+'">Mit dieser Kennung anlegen</a> oder die Kennung in der Wallbox korrigieren.';}}
+ else if(s.auth_failed_at){{live.className='live err';live.textContent='❌ Die Wallbox meldet sich, aber das Passwort '+
+   'stimmt nicht ('+s.auth_failed_at.replace('T',' ')+'). Passwort in der Wallbox prüfen.';}}
+ setTimeout(poll,3000);}}).catch(function(){{setTimeout(poll,5000);}});}}
+poll();}})();
+</script>
+<style>.live{{padding:12px 14px;border-radius:8px;margin-bottom:12px;font-size:14px;font-weight:600}}
+.live.wait{{background:var(--surface2)}}.live.ok{{background:rgba(0,135,86,.12);color:var(--success)}}
+.live.err{{background:rgba(239,68,68,.1);color:var(--error)}}.vendor{{font-size:13px;margin:8px 0;line-height:1.5}}</style>
+</div>""")
+
+    async def status_json(request):
+        c = find(request.match_info['cp_id'])
+        srv = server()
+        st = live(c['id'])
+        since = (datetime.now() - timedelta(minutes=10)).isoformat()
+        other = [k for k, p in sorted((srv.pending if srv else {}).items(), key=lambda kv: kv[1]['last_seen'],
+                                      reverse=True) if p['last_seen'] >= since]
+        failed = (srv.auth_failures.get(c['id']) if srv else None)
+        return web.json_response({
+            'connected': bool(srv and c['id'] in srv.charge_points), 'last_seen': st.get('last_seen'),
+            'device': ' '.join(x for x in (st.get('vendor'), st.get('model')) if x) or None,
+            'auth_failed_at': failed if failed and failed >= since else None, 'other_ids': other})
+
     def commands_html(cp_id, st, connected):
         if not connected:
             return _msg('warn', 'Fernbefehle und Konfiguration gehen nur, solange die Wallbox verbunden ist.')
@@ -428,6 +499,8 @@ def register(app: web.Application, ctx) -> None:
             for n, x in sorted((st.get('connectors') or {}).items()))
         device = ' '.join(x for x in (st.get('vendor'), st.get('model')) if x)
         body = (ctx.flash.pop(cp_id, '') + _restart_box(ctx) + mode_note() +
+                (setup_html(c, request) + '</div><div class="card"><div class="card-title">Details</div>'
+                 if not st.get('last_seen') else '') +
                 f'<ul class="checks"><li><b>Zustand</b> {_e(_status_text(st))}</li>'
                 f'<li><b>Gerät</b> {_e(device or "–")} {"· FW " + _e(st["firmware"]) if st.get("firmware") else ""}</li>'
                 f'<li><b>wallbox_id</b> <span class="mono">{_e(c.get("wallbox_id") or cp_id)}</span></li></ul>'
@@ -545,6 +618,7 @@ def register(app: web.Application, ctx) -> None:
     r.add_post('/wallboxes/new', new_post)
     r.add_post('/wallboxes/dismiss', dismiss)
     r.add_get('/wallbox/{cp_id}', detail)
+    r.add_get('/wallbox/{cp_id}/status.json', status_json)
     r.add_get('/wallbox/{cp_id}/edit', edit_page)
     r.add_post('/wallbox/{cp_id}/edit', edit_post)
     r.add_post('/wallbox/{cp_id}/delete', delete)

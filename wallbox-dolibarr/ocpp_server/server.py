@@ -85,6 +85,7 @@ class OcppServer:
         self.connected = {}   # cp_id → aktuelle Verbindung
         self.charge_points = {}   # cp_id → CentralSystemChargePoint (für Fernbefehle)
         self.pending = {}     # unbekannte cp_id → {first_seen, last_seen, count, remote}
+        self.auth_failures = {}   # cp_id → Zeitpunkt der letzten abgewiesenen Anmeldung (für den Assistenten)
         # Ohne Bremse ließe sich das Wallbox-Passwort im LAN beliebig oft durchprobieren
         self._limiter = LoginLimiter()
 
@@ -161,6 +162,7 @@ class OcppServer:
             if creds is None or not (_equal(creds[0], cp_cfg.id) and _equal(creds[1], cp_cfg.password)):
                 _LOGGER.warning("Wallbox %s: falsche oder fehlende Zugangsdaten — abgewiesen",
                                 safe_cp_id_for_log(cp_id))
+                self.auth_failures[cp_id] = datetime.now().replace(microsecond=0).isoformat()
                 if creds is not None:      # fehlender Header = falsch eingerichtet, kein Rateversuch
                     self._limiter.failure(ip)
                 response = connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
