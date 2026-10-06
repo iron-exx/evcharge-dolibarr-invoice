@@ -260,3 +260,18 @@ def test_charge_point_id_from_path_is_bounded_and_safe_to_log():
     injected = safe_cp_id_for_log("CP1\nWARNUNG gefaelschte Zeile")
     assert "\n" not in injected and "\\n" in injected
     assert safe_cp_id_for_log("CP-001.a_2") == "'CP-001.a_2'"
+
+
+async def test_password_guessing_is_locked_out(env):
+    """Nach 5 Fehlversuchen von einer Adresse ist für 5 min auch das richtige Passwort gesperrt."""
+    for _ in range(5):
+        with pytest.raises(websockets.InvalidStatus):
+            async with connect_sim(env["port"], "CP1", "falsches-passwort-123"):
+                pass
+    with pytest.raises(websockets.InvalidStatus) as exc:
+        async with connect_sim(env["port"], "CP1", PASSWORD):
+            pass
+    assert exc.value.response.status_code == 401
+    env["server"]._limiter.success("127.0.0.1")
+    async with connect_sim(env["port"], "CP1", PASSWORD) as cp:
+        assert await cp.call(call.Heartbeat()) is not None

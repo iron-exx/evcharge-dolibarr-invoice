@@ -151,8 +151,8 @@ verändert.
   Passwort setzen, wo die Wallbox eines unterstützt.
 - Security Profile 1 (Basic Auth ohne TLS) ist nur im **vertrauenswürdigen LAN** vertretbar.
   Das Passwort sollte mindestens 16 Zeichen haben; der Benutzername **muss** die
-  Charge-Point-ID sein (OCPP-Vorgabe A00.FR.204). Eine Ratebremse gibt es nicht — ein
-  kurzes Passwort ist im LAN in Sekunden durchprobiert.
+  Charge-Point-ID sein (OCPP-Vorgabe A00.FR.204). Nach 5 falschen Passwörtern von einer
+  Adresse ist diese 5 Minuten gesperrt — das bremst Raten, ersetzt aber kein langes Passwort.
 - Der Karten-Hash im Log ist **pseudonymisiert, nicht anonymisiert**: `hash_rfid` ist ein
   ungesalzenes SHA-256 über eine 8-stellige Hex-ID, also mit einer Rainbow-Table
   umkehrbar. Für die DSGVO-Bewertung zählt der Log damit als personenbezogen.

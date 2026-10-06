@@ -14,6 +14,7 @@ import websockets
 from websockets.asyncio.server import serve
 from websockets.exceptions import NegotiationError
 
+from admin.security import LoginLimiter
 from ocpp_server.central_system import CentralSystemChargePoint, CentralSystemDeps
 from ocpp_server.redact import install as _install_redaction
 from ocpp_server.settings import OcppSettings
@@ -83,6 +84,8 @@ class OcppServer:
         self.connected = {}   # cp_id → aktuelle Verbindung
         self.charge_points = {}   # cp_id → CentralSystemChargePoint (für Fernbefehle)
         self.pending = {}     # unbekannte cp_id → {first_seen, last_seen, count, remote}
+        # Ohne Bremse ließe sich das Wallbox-Passwort im LAN beliebig oft durchprobieren
+        self._limiter = LoginLimiter()
 
     @property
     def live(self) -> dict:
@@ -130,14 +133,23 @@ class OcppServer:
                           "— in ocpp_charge_points ein eigenes setzen", safe_cp_id_for_log(cp_id))
             return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
         if cp_cfg.password:
+            ip = connection.remote_address[0] if connection.remote_address else '?'
+            wait = self._limiter.locked_for(ip)
+            if wait:
+                _LOGGER.warning("Wallbox %s von %s: zu viele falsche Passwörter — noch %d s gesperrt",
+                                safe_cp_id_for_log(cp_id), ip, wait)
+                return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
             creds = parse_basic_auth(request.headers.get('Authorization'))
             # Security Whitepaper A00.FR.204: Benutzername MUSS die Charge-Point-ID sein
             if creds is None or not (_equal(creds[0], cp_cfg.id) and _equal(creds[1], cp_cfg.password)):
                 _LOGGER.warning("Wallbox %s: falsche oder fehlende Zugangsdaten — abgewiesen",
                                 safe_cp_id_for_log(cp_id))
+                if creds is not None:      # fehlender Header = falsch eingerichtet, kein Rateversuch
+                    self._limiter.failure(ip)
                 response = connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
                 response.headers['WWW-Authenticate'] = 'Basic realm="ocpp", charset="UTF-8"'
                 return response
+            self._limiter.success(ip)
         return None
 
     async def _handler(self, connection):
