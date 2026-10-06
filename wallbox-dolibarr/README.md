@@ -398,6 +398,19 @@ Lernmodus**, nur im Arbeitsspeicher, höchstens 10 Minuten lang, und verschwinde
 beim Beenden des Modus sofort. Die gerenderte Kartenliste zeigt nur den
 Hash-Präfix.
 
+## Benachrichtigungen im HA-Addon
+
+Das Addon meldet einmal je Problem in der **HA-Seitenleiste → Benachrichtigungen**: Ladung
+von Dolibarr abgelehnt (z.B. Karte keinem Mitarbeiter zugeordnet) oder unvollständig,
+Ladungen hängen seit Stunden in der Warteschlange, eine OCPP-Wallbox ist offline.
+
+| Option | Wirkung |
+|---|---|
+| `notify_ha` | an/aus (Standard: an) |
+| `notify_ha_service` | zusätzlich Push aufs Handy über einen Notify-Dienst, z.B. `mobile_app_iphone` |
+
+Standalone stehen dieselben Meldungen per E-Mail/Webhook unter **Einstellungen → Benachrichtigungen**.
+
 ## Haftender RFID-Wert (`rfid_hold_seconds`)
 
 Manche Quellen halten den zuletzt gelesenen Tag **dauerhaft**. Die

@@ -27,6 +27,7 @@ import aiohttp
 import json
 import logging
 import os
+import types
 import sys
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -1156,6 +1157,11 @@ async def main():
         asyncio.create_task(admin_system.backup_loop(data_dir()))   # nächtliches Backup nach data/backups/
         asyncio.create_task(admin_notify.notify_loop(api_state['admin']))   # E-Mail/Webhook bei Problemen
         asyncio.create_task(admin_system.update_check_loop(api_state['admin']))   # „Update verfügbar“
+    else:
+        # HA-Addon: dieselben Prüfungen, gemeldet über Home Assistant (Seitenleiste / Handy-Push)
+        asyncio.create_task(admin_notify.notify_loop(types.SimpleNamespace(
+            config=current_config, session_manager=session_manager, ocpp=lambda: _ocpp_server,
+            data_dir=data_dir(), latest_version=None, standalone=False)))
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")

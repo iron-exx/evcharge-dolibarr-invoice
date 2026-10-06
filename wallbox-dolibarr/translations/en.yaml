@@ -179,6 +179,19 @@ configuration:
       last COMPLETED charging session. The value then sticks and confuses
       state detection. With a value above 0, ExpenseCharge resets the tag to
       "no tag" itself after that time. 1.0 is a good starting point.
+  notify_ha:
+    name: "Report problems in Home Assistant"
+    description: >-
+      Reports each problem once in the HA sidebar (notifications): session
+      rejected by Dolibarr or incomplete, sessions stuck in the queue, OCPP
+      wallbox offline. Default: on.
+
+  notify_ha_service:
+    name: "Also push to the phone (notify service)"
+    description: >-
+      Optional, e.g. mobile_app_iphone (Developer tools → Actions → notify.…)
+      for a push message via the companion app.
+
   tax_flat_price:
     name: "Flat electricity price for the charging report (€/kWh)"
     description: >-

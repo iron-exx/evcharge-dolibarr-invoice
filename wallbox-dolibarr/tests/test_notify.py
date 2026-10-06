@@ -94,3 +94,25 @@ def test_email_and_webhook(monkeypatch):
 
 def test_nothing_configured_sends_nothing():
     assert notify.send({}, 's', ['x']) == ['Keine Benachrichtigung eingerichtet (E-Mail oder Webhook).']
+
+
+def test_home_assistant_channel(monkeypatch):
+    posts = []
+    monkeypatch.setattr(notify.requests, 'post', lambda url, json, timeout, headers=None: posts.append((url, json, headers))
+                        or type('R', (), {'raise_for_status': lambda self: None})())
+    monkeypatch.setenv('SUPERVISOR_TOKEN', 'sv-token')
+    cfg = notify.settings({'notify_ha_service': 'mobile_app_iphone'})
+    assert notify.send(cfg, 'ExpenseCharge: 1 Problem', ['Wallbox 1 offline']) == []
+    urls = [p[0] for p in posts]
+    assert urls == ['http://supervisor/core/api/services/persistent_notification/create',
+                    'http://supervisor/core/api/services/notify/mobile_app_iphone']
+    assert posts[0][2] == {'Authorization': 'Bearer sv-token'} and 'Wallbox 1 offline' in posts[0][1]['message']
+    assert 'sv-token' not in str(cfg.get('ha_service')), "Token nie in der Konfiguration"
+    assert notify.settings({'notify_ha': False}).get('ha_token') is None, "abschaltbar"
+
+
+def test_no_backup_alert_in_home_assistant(ctx):
+    import types
+    ha = types.SimpleNamespace(config=ctx.config, session_manager=ctx.session_manager, ocpp=None,
+                               data_dir=ctx.data_dir, latest_version=None, standalone=False)
+    assert 'backup' not in notify.collect_alerts(ha), "HA sichert selbst"

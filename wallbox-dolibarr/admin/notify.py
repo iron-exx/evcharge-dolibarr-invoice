@@ -25,8 +25,16 @@ DEFAULTS = {'offline_hours': 2, 'pending_hours': 6, 'smtp_port': 587, 'smtp_tls'
 TLS_MODES = ('starttls', 'ssl', 'none')
 
 
+_SUPERVISOR = 'http://supervisor/core/api/services'
+
+
 def settings(config: dict) -> dict:
-    return {**DEFAULTS, **(config.get('notify') or {})}
+    cfg = {**DEFAULTS, **(config.get('notify') or {})}
+    # Im HA-Addon: über Home Assistant melden (Token nur aus der Umgebung, nie gespeichert)
+    if os.getenv('SUPERVISOR_TOKEN') and config.get('notify_ha', True):
+        cfg['ha_token'] = os.getenv('SUPERVISOR_TOKEN')
+        cfg['ha_service'] = (config.get('notify_ha_service') or '').strip().removeprefix('notify.')
+    return cfg
 
 
 def _older_than(iso: str, hours: float) -> bool:
@@ -63,7 +71,8 @@ def collect_alerts(ctx) -> dict:
         alerts[f'update:{ctx.latest_version}'] = (f'Neue Version {ctx.latest_version} verfügbar (installiert '
                                                    f'{app_version()}) – Einstellungen → Systeminfo')
     latest = backup_status(ctx.data_dir)['latest']
-    if not latest or latest < f'expensecharge-{datetime.now() - timedelta(days=2):%Y%m%d}.zip':
+    stale = f'expensecharge-{datetime.now() - timedelta(days=2):%Y%m%d}.zip'
+    if getattr(ctx, 'standalone', True) and (not latest or latest < stale):
         alerts['backup'] = 'Kein automatisches Backup der letzten zwei Tage – Speicherplatz und System-Log prüfen'
     return alerts
 
@@ -98,8 +107,19 @@ def send(cfg: dict, subject: str, lines: list) -> list:
     """E-Mail und/oder Webhook. → Fehlermeldungen (leer = alles zugestellt)."""
     text = '\n'.join(f'• {line}' for line in lines)
     errors = []
-    if not (cfg.get('email_to') or cfg.get('webhook_url')):
+    if not (cfg.get('email_to') or cfg.get('webhook_url') or cfg.get('ha_token')):
         return ['Keine Benachrichtigung eingerichtet (E-Mail oder Webhook).']
+    if cfg.get('ha_token'):
+        headers = {'Authorization': f'Bearer {cfg["ha_token"]}'}
+        calls = [('persistent_notification/create',
+                  {'title': subject, 'message': text, 'notification_id': 'expensecharge'})]
+        if cfg.get('ha_service'):   # z.B. mobile_app_iphone → Push aufs Handy
+            calls.append((f'notify/{cfg["ha_service"]}', {'title': subject, 'message': text}))
+        for service, body in calls:
+            try:
+                requests.post(f'{_SUPERVISOR}/{service}', json=body, timeout=15, headers=headers).raise_for_status()
+            except Exception as exc:
+                errors.append(f'Home Assistant ({service}): {exc}')
     if cfg.get('email_to'):
         try:
             msg = EmailMessage()
@@ -132,7 +152,7 @@ async def notify_loop(ctx) -> None:
         await asyncio.sleep(CHECK_SECONDS)
         try:
             cfg = settings(ctx.config)
-            if cfg.get('email_to') or cfg.get('webhook_url'):
+            if cfg.get('email_to') or cfg.get('webhook_url') or cfg.get('ha_token'):
                 def deliver(subject, lines):
                     for err in send(cfg, subject, lines):
                         _LOGGER.error("Benachrichtigung nicht zugestellt — %s", err)

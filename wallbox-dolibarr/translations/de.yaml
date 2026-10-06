@@ -182,6 +182,19 @@ configuration:
       Wert stehen und bringt die Zustandserkennung durcheinander. Mit einem
       Wert größer 0 setzt ExpenseCharge den Tag nach dieser Zeit selbst auf
       "kein Tag" zurück. 1.0 ist ein guter Startwert.
+  notify_ha:
+    name: "Probleme in Home Assistant melden"
+    description: >-
+      Meldet einmal je Problem in der HA-Seitenleiste (Benachrichtigungen):
+      Ladung von Dolibarr abgelehnt oder unvollständig, Ladungen hängen in der
+      Warteschlange, OCPP-Wallbox offline. Standard: an.
+
+  notify_ha_service:
+    name: "Zusätzlich aufs Handy (Notify-Dienst)"
+    description: >-
+      Optional, z.B. mobile_app_iphone (Entwicklerwerkzeuge → Aktionen →
+      notify.…) für eine Push-Nachricht über die Companion-App.
+
   tax_flat_price:
     name: "Strompreis-Pauschale für den Ladenachweis (€/kWh)"
     description: >-

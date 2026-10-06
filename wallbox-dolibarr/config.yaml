@@ -259,6 +259,8 @@ schema:
   rfid_hold_seconds: "float(0,60)"
   min_session_kwh: "float"
   tax_flat_price: "float(0,2)?"
+  notify_ha: "bool?"
+  notify_ha_service: "str?"
   max_session_hours: "float"
   web_port: "int(1,65535)"
   web_bind: "str"
