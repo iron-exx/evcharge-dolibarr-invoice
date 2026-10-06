@@ -587,7 +587,7 @@ nach dem Anmelden in den passenden Schritt.
 
 ### Verwaltung im Browser (Standalone)
 
-Nach dem Anmelden kommen zu Erfassen · Verlauf · Karten · System diese Seiten dazu:
+Nach dem Anmelden kommen zu Übersicht · Verlauf · Karten · System diese Seiten dazu:
 
 - **Wallboxen** — alle OCPP-Wallboxen mit Live-Zustand (alle 5 s aktualisiert);
   anlegen, bearbeiten, löschen (trennt sofort), Passwort-Generator (Anzeige nur

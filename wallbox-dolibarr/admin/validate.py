@@ -54,7 +54,7 @@ def api_token(value: str) -> str:
 def charge_point_id(value: str) -> str:
     value = (value or '').strip()
     if not _CP_ID.match(value):
-        raise ValueError('Charge-Point-ID: 1–48 Zeichen, Buchstaben, Ziffern, . _ : - '
+        raise ValueError('Wallbox-Kennung (Charge-Point-ID): 1–48 Zeichen, Buchstaben, Ziffern, . _ : - '
                          '(steht in der Wallbox-Konfiguration, bei Alfen die Seriennummer)')
     return value
 
@@ -71,9 +71,9 @@ def wallbox_id(value: str, *fallbacks: str) -> str:
 def ocpp_password(value: str) -> str:
     value = value or ''
     if not MIN_OCPP_PASSWORD <= len(value) <= MAX_OCPP_PASSWORD:
-        raise ValueError(f'OCPP-Passwort: {MIN_OCPP_PASSWORD}–{MAX_OCPP_PASSWORD} Zeichen')
+        raise ValueError(f'Wallbox-Passwort: {MIN_OCPP_PASSWORD}–{MAX_OCPP_PASSWORD} Zeichen')
     if not value.isprintable():
-        raise ValueError('OCPP-Passwort: keine Steuerzeichen')
+        raise ValueError('Wallbox-Passwort: keine Steuerzeichen')
     return value
 
 

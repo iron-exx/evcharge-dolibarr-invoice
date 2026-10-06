@@ -449,18 +449,18 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
                     'arbeitet, überspringt diesen Schritt.')
         return f"""{_msg('err', error)}{note}{_env_warning(['session_source', 'ocpp_charge_points'])}
 <form method="POST" action="/setup/3">
-  <label class="flabel">Charge-Point-ID</label>
+  <label class="flabel">Wallbox-Kennung (Charge-Point-ID)</label>
   <input name="cp_id" value="{_e(values.get('cp_id'))}" placeholder="ACE0123456" required>
   <div class="hint">Steht in der Wallbox-Konfiguration (Alfen: Seriennummer). Unbekannte IDs meldet das Log.</div>
   <div class="row2">
     <div><label class="flabel">Name</label><input name="name" value="{_e(values.get('name'))}" placeholder="Garage links"></div>
-    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" placeholder="aus dem Namen"><div class="hint">Steht in der Dolibarr-Spesenzeile. Beliebiger Name möglich – leer = aus dem Namen; „Wallbox 1“ wird zu <code>Wallbox_1</code>.</div></div>
+    <div><label class="flabel">Name in der Spesenabrechnung</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" placeholder="aus dem Namen"><div class="hint">Steht in der Dolibarr-Spesenzeile. Beliebiger Name möglich – leer = aus dem Namen; „Wallbox 1“ wird zu <code>Wallbox_1</code>.</div></div>
   </div>
-  <label class="flabel">OCPP-Passwort</label>
+  <label class="flabel">Wallbox-Passwort</label>
   <input name="password" type="password" autocomplete="new-password" placeholder="leer = zufällig erzeugen">
   <div class="hint">{validate.MIN_OCPP_PASSWORD}–{validate.MAX_OCPP_PASSWORD} Zeichen. Leer lassen erzeugt ein
   sicheres Passwort, das im letzten Schritt einmal zum Kopieren angezeigt wird.</div>
-  <label class="flabel">Backend-URL für die Wallbox</label>
+  <label class="flabel">Server-Adresse für die Wallbox</label>
   <div class="copy"><input id="ws" readonly value="{_e(values.get('ws'))}"><button type="button" onclick="ecCopy('ws')">Kopieren</button></div>
   <button class="btn-save" type="submit">Speichern und weiter</button>
 </form>
@@ -547,13 +547,13 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
                        f'<div class="hint">Passwort: {_e(mask(cp.get("password")))} (neu setzen in Schritt 3)</div>')
             wallboxes += f"""<label class="flabel">{_e(cp.get('name') or cp.get('id'))} – Charge-Point-ID</label>
 <div class="copy"><input id="id{i}" readonly value="{_e(cp.get('id'))}"><button type="button" onclick="ecCopy('id{i}')">Kopieren</button></div>
-<label class="flabel">Backend-URL</label>
+<label class="flabel">Server-Adresse</label>
 <div class="copy"><input id="ws{i}" readonly value="{_e(_ws_url(ctx, request))}"><button type="button" onclick="ecCopy('ws{i}')">Kopieren</button></div>
 <label class="flabel">Passwort</label>{pw_html}"""
         rows.append(f'<li><b>Karten</b> {len(ctx.session_manager.list_tags())} bekannt</li>')
         body = (_restart_box(ctx) + f'<ul class="checks">{"".join(rows)}</ul>' + wallboxes +
-                '<div class="hint">In der Wallbox (Alfen: ACE Service Installer → OCPP) Backend-URL, '
-                'Charge-Point-ID und Passwort eintragen, ' + _security_profile() + '.</div>'
+                '<div class="hint">In der Wallbox (Alfen: ACE Service Installer → OCPP) Server-Adresse, '
+                'Kennung und Passwort eintragen, ' + _security_profile() + '.</div>'
                 '<a class="btn-save" style="text-decoration:none" href="/">Zur Übersicht</a>')
         return _page(ctx, request, 'Fertig', body, step=5)
 

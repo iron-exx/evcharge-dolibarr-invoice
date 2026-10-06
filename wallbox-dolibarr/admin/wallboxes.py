@@ -73,7 +73,7 @@ def _connector(form, required=True):
     if not raw and not required:
         return None
     if not raw.isdigit() or not 0 <= int(raw) <= 10:
-        raise ValueError('Connector: Zahl 0–10 (1 = erster Ladepunkt, 0 = ganze Wallbox)')
+        raise ValueError('Ladepunkt: Zahl 0–10 (1 = erster, 0 = ganze Wallbox)')
     return int(raw)
 
 
@@ -191,7 +191,7 @@ def register(app: web.Application, ctx) -> None:
                      f'<td class="mono">{_e(c.get("wallbox_id") or cp_id)}</td>'
                      f'<td class="st">{_e(_status_text(st))}</td>'
                      f'<td>{_e(" ".join(x for x in (st.get("vendor"), st.get("model")) if x))}</td></tr>')
-        table = (f'<div class="tbl-wrap"><table><tr><th>Wallbox</th><th>wallbox_id</th><th>Zustand</th>'
+        table = (f'<div class="tbl-wrap"><table><tr><th>Wallbox</th><th>In der Abrechnung</th><th>Zustand</th>'
                  f'<th>Gerät</th></tr>{rows}</table></div>' if rows else
                  '<p class="empty">Noch keine Wallbox eingetragen.</p>')
         srv = server()
@@ -206,12 +206,12 @@ def register(app: web.Application, ctx) -> None:
                         f'value="{_e(cp_id)}"><button type="submit">Ignorieren</button></form></td></tr>')
         pending_card = ('</div><div class="card"><div class="card-title">Wartende Wallboxen</div>'
                         '<p class="hint">Diese IDs haben sich gemeldet, sind aber nicht eingetragen und wurden '
-                        f'abgewiesen.</p><div class="tbl-wrap"><table><tr><th>Charge-Point-ID</th><th>Adresse</th>'
+                        f'abgewiesen.</p><div class="tbl-wrap"><table><tr><th>Kennung</th><th>Adresse</th>'
                         f'<th>zuletzt</th><th></th></tr>{pending}</table></div>' if pending else '')
         body = (_restart_box(ctx) + mode_note() + table +
                 '<a class="btn-save" style="text-decoration:none" href="/wallboxes/new">Wallbox hinzufügen</a>'
-                f'<div class="hint">Backend-URL für alle Wallboxen: <code>{_e(_ws_url(ctx, request))}</code>'
-                f' (die Charge-Point-ID hängt die Wallbox selbst an) · {_security_profile()}.</div>' + pending_card + _LIVE_JS)
+                f'<div class="hint">Server-Adresse für alle Wallboxen: <code>{_e(_ws_url(ctx, request))}</code>'
+                f' (die Kennung hängt die Wallbox selbst an) · {_security_profile()}.</div>' + pending_card + _LIVE_JS)
         return page(request, 'Wallboxen', body)
 
     async def dismiss(request):
@@ -238,12 +238,12 @@ def register(app: web.Application, ctx) -> None:
                    'sobald sie sich neu verbindet)</label>')
         return f"""{_msg('err', error)}{_env_warning(['ocpp_charge_points'])}
 <form method="POST" action="{_e(action)}">
-  <label class="flabel">Charge-Point-ID</label>{cp_id_field}
+  <label class="flabel">Wallbox-Kennung (Charge-Point-ID)</label>{cp_id_field}
   <div class="row2">
     <div><label class="flabel">Name</label><input name="name" value="{_e(values.get('name'))}" placeholder="Garage links"></div>
-    <div><label class="flabel">wallbox_id (Dolibarr)</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" placeholder="aus dem Namen"><div class="hint">Steht in der Dolibarr-Spesenzeile. Beliebiger Name möglich – leer = aus dem Namen; „Wallbox 1“ wird zu <code>Wallbox_1</code>.</div></div>
+    <div><label class="flabel">Name in der Spesenabrechnung</label><input name="wallbox_id" value="{_e(values.get('wallbox_id'))}" placeholder="aus dem Namen"><div class="hint">Steht in der Dolibarr-Spesenzeile. Beliebiger Name möglich – leer = aus dem Namen; „Wallbox 1“ wird zu <code>Wallbox_1</code>.</div></div>
   </div>
-  <label class="flabel">OCPP-Passwort</label>
+  <label class="flabel">Wallbox-Passwort</label>
   <input name="password" type="password" autocomplete="new-password">
   <div class="hint">{validate.MIN_OCPP_PASSWORD}–{validate.MAX_OCPP_PASSWORD} Zeichen. {pw_hint}</div>{gen}
   <button class="btn-save" type="submit">Speichern</button>
@@ -271,7 +271,7 @@ def register(app: web.Application, ctx) -> None:
         try:
             cp_id, name, wb, pw, generated = parse(form, True)
             if any(c.get('id') == cp_id for c in entries()):
-                raise ValueError(f'Charge-Point-ID {cp_id} ist schon eingetragen')
+                raise ValueError(f'Eine Wallbox mit der Kennung {cp_id} ist schon eingetragen')
         except ValueError as exc:
             return page(request, 'Wallbox hinzufügen', edit_form(dict(form), '/wallboxes/new', True, _e(exc)))
         new_entries = [c for c in entries() if c.get('id') != PLACEHOLDER_ID]
@@ -334,7 +334,7 @@ def register(app: web.Application, ctx) -> None:
 <div id="live" class="live wait">⏳ Warte auf die Wallbox … (diese Anzeige aktualisiert sich selbst)</div>
 <label class="flabel">1. Hersteller wählen</label><select id="vendor">{options}</select>{texts}
 <label class="flabel" style="margin-top:12px">2. Diese Werte in der Wallbox eintragen</label>
-{field('s-url', 'Server-Adresse (Backend-URL)', _ws_url(ctx, request))}
+{field('s-url', 'Server-Adresse (heißt in der Wallbox oft Backend-URL)', _ws_url(ctx, request))}
 {field('s-id', 'Wallbox-Kennung (Charge-Point-ID / Benutzer)', cp_id)}
 <div class="hint">Passwort: das beim Anlegen angezeigte. Vergessen? Unten <b>Bearbeiten → neues Passwort erzeugen</b>.
  · {_security_profile()} · Protokoll: OCPP 1.6 JSON</div>
@@ -389,7 +389,7 @@ poll();}})();
 
         def conn_select(with_zero=False):
             opts = (['0'] if with_zero else []) + conns
-            return ('<label class="flabel">Connector</label><select name="connector_id">' +
+            return ('<label class="flabel">Ladepunkt</label><select name="connector_id">' +
                     ''.join(f'<option>{_e(c)}</option>' for c in opts) + '</select>')
 
         return '<div class="cmds">' + ''.join([
@@ -503,14 +503,14 @@ poll();}})();
                  if not st.get('last_seen') else '') +
                 f'<ul class="checks"><li><b>Zustand</b> {_e(_status_text(st))}</li>'
                 f'<li><b>Gerät</b> {_e(device or "–")} {"· FW " + _e(st["firmware"]) if st.get("firmware") else ""}</li>'
-                f'<li><b>wallbox_id</b> <span class="mono">{_e(c.get("wallbox_id") or cp_id)}</span></li></ul>'
-                f'<label class="flabel">Charge-Point-ID</label><div class="copy"><input id="cpid" readonly '
+                f'<li><b>In der Abrechnung</b> <span class="mono">{_e(c.get("wallbox_id") or cp_id)}</span></li></ul>'
+                f'<label class="flabel">Wallbox-Kennung</label><div class="copy"><input id="cpid" readonly '
                 f'value="{_e(cp_id)}"><button type="button" onclick="ecCopy(\'cpid\')">Kopieren</button></div>'
-                f'<label class="flabel">Backend-URL</label><div class="copy"><input id="ws" readonly '
+                f'<label class="flabel">Server-Adresse</label><div class="copy"><input id="ws" readonly '
                 f'value="{_e(_ws_url(ctx, request))}"><button type="button" onclick="ecCopy(\'ws\')">Kopieren'
                 f'</button></div>{pw_html}' +
-                (f'<div class="tbl-wrap"><table><tr><th>Connector</th><th>Status</th><th>Fehler</th><th>kWh</th>'
-                 f'<th>Transaktion</th></tr>{conn_rows}</table></div>' if conn_rows else '') +
+                (f'<div class="tbl-wrap"><table><tr><th>Ladepunkt</th><th>Status</th><th>Fehler</th><th>kWh</th>'
+                 f'<th>Ladung Nr.</th></tr>{conn_rows}</table></div>' if conn_rows else '') +
                 f'<div class="row2"><a class="btn-2nd" href="/wallbox/{enc}/edit">Bearbeiten</a>'
                 f'<a class="btn-2nd" href="/wallbox/{enc}">Aktualisieren</a>'
                 f'<form method="POST" action="/wallbox/{enc}/delete" '

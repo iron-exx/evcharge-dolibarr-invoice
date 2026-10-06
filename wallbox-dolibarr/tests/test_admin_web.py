@@ -231,7 +231,7 @@ async def test_step3_rejects_bad_input(client):
     assert 'Charge-Point-ID' in await r.text()
     r = await _post(client, '/setup/3', '/setup/3',
                     {'cp_id': 'CP1', 'name': '', 'wallbox_id': 'garage', 'password': 'kurz'})
-    assert 'OCPP-Passwort' in await r.text()
+    assert 'Wallbox-Passwort' in await r.text()
 
 
 async def test_step4_cards_become_business_tags(client, env):

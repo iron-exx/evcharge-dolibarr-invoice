@@ -379,7 +379,7 @@ def _base(active, content, base_href=''):
     base_tag = f'  <base href="{base_href}/">\n' if base_href else ''
     nav_form = (
         f'<a href="./" class="{"active" if active == "form" else ""}">'
-        f'{_ICO_BOLT} Erfassen</a>'
+        f'{_ICO_BOLT} Übersicht</a>'
     )
     nav_hist = (
         f'<a href="history" class="{"active" if active == "history" else ""}">'
@@ -676,7 +676,7 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
 
     sessions_block = (
         f'<div class="card">'
-        f'<div class="card-title">{_ICO_HIST} Letzte Sessions</div>'
+        f'<div class="card-title">{_ICO_HIST} Letzte Ladungen</div>'
         f'{rows_html}</div>'
     ) if rows_html else ''
 
@@ -936,9 +936,9 @@ def _build_tags_page(session_manager, config, api_state=None, base_href='', mess
                 'onclick="return confirm(\'Karte wirklich entfernen? Sie kann danach nur noch '
                 'laden, wenn sie in der Konfigurations-Whitelist steht.\')">Entfernen</button>'
                 '</form>'
-                f'<div style="color:var(--dim);font-size:11px;width:100%">'
-                f'Hash {prefix}… · {t["seen_count"]}x gesehen · '
-                f'zuletzt {html.escape(t["last_seen"] or "—")} · {html.escape(t["mode_hint"])}</div>'
+                f'<div style="color:var(--dim);font-size:11px;width:100%" title="Kennung (Hash) {prefix}…">'
+                f'{t["seen_count"]}× benutzt · zuletzt {html.escape(_de_datetime(t["last_seen"]))} · '
+                f'{html.escape(t["mode_hint"])}</div>'
                 '</div>')
         tags_html = ''.join(rows)
     else:
@@ -1235,7 +1235,7 @@ def _build_system_page(session_manager, config, api_state=None, base_href=''):
     <div class="kpi"><div class="kpi-lbl">Datenquelle</div>
       <div class="kpi-val" style="font-size:16px">{html.escape(diag['session_source'])}</div>
       <div class="kpi-sub">Profil {html.escape(diag['wallbox_profile'])}</div></div>
-    <div class="kpi"><div class="kpi-lbl">Sessions</div>
+    <div class="kpi"><div class="kpi-lbl">Ladungen</div>
       <div class="kpi-val">{diag['sessions']}</div>
       <div class="kpi-sub">{diag['untransmitted']} noch nicht übertragen</div></div>
     <div class="kpi"><div class="kpi-lbl">Karten</div>
@@ -1260,7 +1260,7 @@ def _build_system_page(session_manager, config, api_state=None, base_href=''):
 </div>
 
 <div class="card">
-  <div class="card-title">{_ICO_HIST} Sessions nach Status</div>
+  <div class="card-title">{_ICO_HIST} Ladungen nach Status</div>
   <table><tbody>{status_rows or '<tr><td class="td-dim">noch keine</td><td></td></tr>'}</tbody></table>
 </div>
 
@@ -1410,6 +1410,12 @@ def _fmt_eur(value) -> str:
     return f'{value:,.2f}'.replace(',', ' ').replace('.', ',').replace(' ', '.') + ' €'
 
 
+def _de_datetime(iso) -> str:
+    """'2026-10-05T10:57:00' → '05.10.2026 10:57'."""
+    text = str(iso or '')
+    return f'{text[8:10]}.{text[5:7]}.{text[:4]} {text[11:16]}'.strip() if len(text) >= 10 else '—'
+
+
 def _fmt_kwh(value) -> str:
     return '' if value is None else f'{value:,.3f}'.replace(',', ' ').replace('.', ',').replace(' ', '.')
 
@@ -1523,7 +1529,7 @@ def _build_history_page(session_manager, year, month, base_href=''):
             )
         table_rows += (
             f'<tr class="total-row">'
-            f'<td colspan="3">Gesamt ({n_total} Sessions)</td>'
+            f'<td colspan="3">Gesamt ({n_total} Ladungen)</td>'
             f'<td class="td-bold">{total_kwh:.3f} kWh</td>'
             f'<td><span style="font-size:11px;color:var(--muted)">'
             f'{n_sent} übertr. · {n_pending} ausst.</span></td></tr>'
@@ -1538,7 +1544,7 @@ def _build_history_page(session_manager, year, month, base_href=''):
             f'</table></div>'
         )
     else:
-        table_html = '<div class="empty">Keine Sessions in diesem Monat</div>'
+        table_html = '<div class="empty">Keine Ladungen in diesem Monat</div>'
 
     export_url = f'export?year={year}&month={month}'
     chart_html = _build_daily_chart(rows, year, month)
@@ -1633,10 +1639,10 @@ def create_app(session_manager, config, api_state):
             )
 
             if sid:
-                msg_html = (f'<div class="msg ok">Session #{sid} gespeichert: '
+                msg_html = (f'<div class="msg ok">Ladung #{sid} gespeichert: '
                             f'<strong>{kwh:.3f} kWh</strong> am {date_str}</div>')
             else:
-                raise ValueError("Session konnte nicht gespeichert werden.")
+                raise ValueError("Ladung konnte nicht gespeichert werden.")
         except Exception as exc:
             msg_html = f'<div class="msg err">Fehler: {exc}</div>'
 
@@ -1680,12 +1686,12 @@ def create_app(session_manager, config, api_state):
                     msg_html = (f'<div class="msg warn">{sent} übertragen, {rejected} von Dolibarr abgelehnt '
                                 f'(Grund unter „Ladevorgänge“): {html.escape(result["errors"][0])}</div>')
                 elif sent == 0 and failed == 0:
-                    msg_html = '<div class="msg warn">Keine ausstehenden Sessions.</div>'
+                    msg_html = '<div class="msg warn">Keine ausstehenden Ladungen.</div>'
                 elif failed > 0:
                     err = result['errors'][0] if result['errors'] else ''
                     msg_html = f'<div class="msg err">{sent} übertragen, {failed} fehlgeschlagen: {err}</div>'
                 else:
-                    msg_html = f'<div class="msg ok">{sent} Session(s) erfolgreich an Dolibarr übertragen.</div>'
+                    msg_html = f'<div class="msg ok">{sent} Ladung(en) erfolgreich an Dolibarr übertragen.</div>'
             except Exception as exc:
                 msg_html = f'<div class="msg err">Übertragungsfehler: {exc}</div>'
 
