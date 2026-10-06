@@ -1155,6 +1155,7 @@ async def main():
         warn_if_web_exposed(api_state['admin'].accounts.exists())
         asyncio.create_task(admin_system.backup_loop(data_dir()))   # nächtliches Backup nach data/backups/
         asyncio.create_task(admin_notify.notify_loop(api_state['admin']))   # E-Mail/Webhook bei Problemen
+        asyncio.create_task(admin_system.update_check_loop(api_state['admin']))   # „Update verfügbar“
     api_config   = current_config.get("api", {})
     dolibarr_url = api_config.get("dolibarr_url", "")
     api_token    = api_config.get("api_token", "")

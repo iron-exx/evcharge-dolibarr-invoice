@@ -15,9 +15,11 @@ import shutil
 import sqlite3
 import tempfile
 import time
+import re
 import zipfile
 from datetime import datetime
 
+import requests
 from aiohttp import web
 
 from app_settings import VALID_LOG_LEVELS
@@ -117,6 +119,53 @@ def make_backup(data_dir: str) -> bytes:
 
 
 DAILY_KEEP = 14
+_CONFIG_YAML = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.yaml')
+LATEST_URL = ('https://raw.githubusercontent.com/systemwerk-GmbH-Co-KG/ExpenseCharge/main/'
+              'wallbox-dolibarr/config.yaml')
+_VERSION = re.compile(r'^version:\s*"?([0-9][0-9A-Za-z.\-]*)"?', re.M)
+
+
+def app_version() -> str:
+    """Die Addon-Version aus config.yaml (liegt im Image neben dem Code); Build-Argument hat Vorrang."""
+    env = os.getenv('EXPENSECHARGE_VERSION')
+    if env and env != 'dev':
+        return env
+    try:
+        with open(_CONFIG_YAML) as f:
+            m = _VERSION.search(f.read())
+        return m.group(1) if m else 'dev'
+    except OSError:
+        return 'dev'
+
+
+def newer(candidate: str, current: str) -> bool:
+    def parts(v):
+        return tuple(int(x) for x in v.split('.')[:3])
+    try:
+        return parts(candidate) > parts(current)
+    except (ValueError, AttributeError):
+        return False
+
+
+def fetch_latest_version():
+    """Version im main-Branch auf GitHub, oder None."""
+    try:
+        r = requests.get(LATEST_URL, timeout=10)
+        r.raise_for_status()
+        m = _VERSION.search(r.text)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+async def update_check_loop(ctx, interval: float = 24 * 3600) -> None:
+    """Einmal am Tag nachsehen, ob es eine neuere Version gibt (abschaltbar: update_check: false)."""
+    while True:
+        if ctx.config.get('update_check', True):
+            ctx.latest_version = await asyncio.to_thread(fetch_latest_version) or ctx.latest_version
+        await asyncio.sleep(interval)
+
+
 
 
 def _backup_dir(data_dir: str) -> str:
@@ -273,7 +322,9 @@ def register(app: web.Application, ctx) -> None:
         counts = ctx.session_manager.session_counts()
         disk = shutil.disk_usage(ctx.data_dir)
         info_rows = [
-            ('Version', os.getenv('EXPENSECHARGE_VERSION') or 'dev'),
+            ('Version', app_version() + ('' if not ctx.latest_version else
+                                         ' · aktuell' if not newer(ctx.latest_version, app_version()) else
+                                         f' · Update verfügbar: {ctx.latest_version}')),
             ('Laufzeit', _uptime()),
             ('Betriebsart', ctx.config.get('session_source', 'ha_sensors')),
             ('Python', platform.python_version()),
@@ -294,7 +345,12 @@ def register(app: web.Application, ctx) -> None:
                        '. Liegt auf demselben Laufwerk – zusätzlich ab und zu eins herunterladen und woanders '
                        'ablegen.</p>')
         info_html = ''.join(f'<li><b>{_e(k)}</b> {_e(v)}</li>' for k, v in info_rows)
-        return (f"""{_msg('err', error)}{_msg('ok', info)}{_restart_box(ctx)}
+        update = (_msg('warn', f'Update verfügbar: {_e(ctx.latest_version)} (installiert {_e(app_version())}). '
+                               'Einspielen auf dem Server: <code>cd /opt/ExpenseCharge &amp;&amp; git pull &amp;&amp; '
+                               'cd wallbox-dolibarr &amp;&amp; docker compose up -d --build --force-recreate</code> – '
+                               'vorher ein Backup herunterladen.')
+                  if ctx.latest_version and newer(ctx.latest_version, app_version()) else '')
+        return (f"""{_msg('err', error)}{_msg('ok', info)}{update}{_restart_box(ctx)}
 {_env_warning(['log_level'] + [f for f, *_ in FIELDS])}
 <form method="POST" action="/settings">
   <div class="grid2">

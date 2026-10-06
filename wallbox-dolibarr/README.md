@@ -684,6 +684,14 @@ siehe `build.yaml`. Der Ressourcenbedarf ist gering: Python-Prozess plus SQLite.
 docker compose logs -f                 # Live-Log
 curl -s localhost:8099/health          # {"status": "ok"} — ohne Anmeldung
 docker compose down                    # stoppen (data/ bleibt erhalten)
+```
+
+**Updates:** Einmal am Tag fragt ExpenseCharge bei GitHub nach der aktuellen Version
+(`config.yaml` im Branch `main`, nur ein HTTPS-Abruf, es wird nichts übertragen). Ist eine
+neuere da, steht das unter **Einstellungen** samt Befehl zum Einspielen und kommt per
+Benachrichtigung. Abschalten: `"update_check": false` in `data/options.json`.
+
+```bash
 sqlite3 data/sessions.db "SELECT id,status,total_kwh FROM sessions ORDER BY id DESC LIMIT 10;"
 ```
 

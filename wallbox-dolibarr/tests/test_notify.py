@@ -50,6 +50,8 @@ def test_collect_alerts(ctx):
     assert 'offline:NEU' not in alerts, "noch nie verbunden = noch nicht montiert, kein Alarm"
     assert 'backup' in alerts, "noch nie ein automatisches Backup"
     assert 'Wallbox 1' in alerts['offline:ACE1']
+    ctx.latest_version = '99.0.0'
+    assert 'update:99.0.0' in notify.collect_alerts(ctx)
 
 
 def test_each_problem_reported_once_until_resolved(ctx):

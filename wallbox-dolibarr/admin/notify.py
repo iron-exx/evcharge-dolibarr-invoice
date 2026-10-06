@@ -16,7 +16,7 @@ from email.message import EmailMessage
 
 import requests
 
-from .system import backup_status
+from .system import app_version, backup_status, newer
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +59,9 @@ def collect_alerts(ctx) -> dict:
             if st.get('last_seen') and not st.get('connected') and _older_than(st['last_seen'], cfg['offline_hours']):
                 alerts[f'offline:{cp["id"]}'] = (f'Wallbox {cp.get("name") or cp["id"]} seit '
                                                  f'{st["last_seen"].replace("T", " ")} nicht verbunden')
+    if ctx.latest_version and newer(ctx.latest_version, app_version()):
+        alerts[f'update:{ctx.latest_version}'] = (f'Neue Version {ctx.latest_version} verfügbar (installiert '
+                                                   f'{app_version()}) – Einstellungen → Systeminfo')
     latest = backup_status(ctx.data_dir)['latest']
     if not latest or latest < f'expensecharge-{datetime.now() - timedelta(days=2):%Y%m%d}.zip':
         alerts['backup'] = 'Kein automatisches Backup der letzten zwei Tage – Speicherplatz und System-Log prüfen'

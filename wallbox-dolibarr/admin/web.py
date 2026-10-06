@@ -85,6 +85,7 @@ class AdminContext:
     restart_reasons: set = field(default_factory=set)
     flash: dict = field(default_factory=dict)            # cp_id → Meldung für die nächste Detailseite
     cp_config: dict = field(default_factory=dict)        # cp_id → zuletzt gelesene Wallbox-Konfiguration
+    latest_version: Optional[str] = None                 # neueste Version auf GitHub (Update-Hinweis)
 
     def __post_init__(self):
         self.accounts = self.accounts or AccountStore(self.data_dir)

@@ -173,3 +173,23 @@ async def test_tax_flat_price_hot_no_restart(env):
     text = await r.text()
     assert 'Gespeichert' in text and 'Neustart nötig' not in text
     assert env['config']['tax_flat_price'] == 0.34, "sofort wirksam für den Ladenachweis"
+
+
+def test_version_from_config_and_update_compare(monkeypatch):
+    monkeypatch.delenv('EXPENSECHARGE_VERSION', raising=False)
+    import re
+    expected = re.search(r'^version: "([^"]+)"', open(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), 'config.yaml')).read(), re.M).group(1)
+    assert system.app_version() == expected
+    assert system.newer('2.2.0', '2.1.0') and not system.newer('2.1.0', '2.1.0') and not system.newer('2.0.9', '2.1.0')
+    assert system.newer('2.10.0', '2.9.1'), "numerisch, nicht als Text"
+    assert not system.newer('kaputt', '2.1.0')
+    monkeypatch.setattr(system.requests, 'get', lambda url, timeout: type('R', (), {
+        'raise_for_status': lambda self: None, 'text': 'name: x\nversion: "9.9.9"\n'})())
+    assert system.fetch_latest_version() == '9.9.9'
+
+
+async def test_update_hint_on_settings(env):
+    env['ctx'].latest_version = '99.0.0'
+    page = await (await env['client'].get('/settings')).text()
+    assert 'Update verfügbar: 99.0.0' in page and 'git pull' in page

@@ -61,6 +61,7 @@ COPY tag_release.py     /usr/local/bin/tag_release.py
 COPY tag_learning.py    /usr/local/bin/tag_learning.py
 COPY env_config.py      /usr/local/bin/env_config.py
 COPY placeholders.py    /usr/local/bin/placeholders.py
+COPY config.yaml        /usr/local/bin/config.yaml
 COPY admin/             /usr/local/bin/admin/
 COPY utils/             /usr/local/bin/utils/
 COPY ocpp_server/       /usr/local/bin/ocpp_server/
