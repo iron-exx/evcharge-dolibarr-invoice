@@ -192,7 +192,7 @@ def test_version_from_config_and_update_compare(monkeypatch):
 async def test_update_hint_on_settings(env):
     env['ctx'].latest_version = '99.0.0'
     page = await (await env['client'].get('/settings')).text()
-    assert 'Update verfügbar: 99.0.0' in page and 'git pull' in page
+    assert 'Update verfügbar: 99.0.0' in page and 'update.sh' in page
 
 
 async def test_report_recipients_and_user_email(env):
