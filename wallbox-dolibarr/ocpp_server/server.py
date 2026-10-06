@@ -114,6 +114,17 @@ class OcppServer:
             raise LookupError('Wallbox ist nicht verbunden')
         return await asyncio.wait_for(cp.call(payload, suppress=False), timeout)
 
+    async def clear_caches(self) -> int:
+        """Autorisierungs-Cache aller verbundenen Wallboxen leeren — nach dem Sperren
+        einer Karte, damit sie auch offline nicht mehr lädt. → Anzahl bestätigt."""
+        from ocpp.v16 import call
+        results = await asyncio.gather(*(self.send(cp_id, call.ClearCache()) for cp_id in list(self.charge_points)),
+                                       return_exceptions=True)
+        ok = sum(1 for r in results if getattr(r, 'status', None) == 'Accepted')
+        if results:
+            _LOGGER.info("Autorisierungs-Cache geleert: %d von %d Wallbox(en)", ok, len(results))
+        return ok
+
     async def disconnect(self, cp_id: str) -> None:
         connection = self.connected.get(cp_id)
         if connection is not None:

@@ -1910,6 +1910,12 @@ def create_app(session_manager, config, api_state):
                                       'label': saved['label']})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
 
+    def _revoke_offline():
+        """Gesperrte Karte soll auch offline nicht mehr laden: Wallbox-Caches leeren."""
+        server = (api_state or {}).get('ocpp_server')
+        if server is not None:
+            asyncio.get_running_loop().create_task(server.clear_caches())
+
     def _tag_by_prefix(prefix):
         if len(prefix) < 8:
             return None
@@ -1930,6 +1936,8 @@ def create_app(session_manager, config, api_state):
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=400)
         _audit(request, 'karte', f'{tag["rfid_hash"][:16]}… {label}'.strip(), f'{tag["mode"]} → {mode}')
+        if mode == 'unknown' and tag['mode'] != 'unknown':
+            _revoke_offline()
         if _wants_json(request):
             return web.json_response({'ok': True})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
@@ -1966,6 +1974,7 @@ def create_app(session_manager, config, api_state):
                 return web.json_response({'error': 'Karte nicht gefunden'}, status=404)
             raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")
         _audit(request, 'karte', None, 'entfernt')
+        _revoke_offline()
         if _wants_json(request):
             return web.json_response({'ok': True})
         raise web.HTTPFound(f"{request.headers.get('X-Ingress-Path', '')}/tags")

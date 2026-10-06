@@ -275,3 +275,23 @@ async def test_password_guessing_is_locked_out(env):
     env["server"]._limiter.success("127.0.0.1")
     async with connect_sim(env["port"], "CP1", PASSWORD) as cp:
         assert await cp.call(call.Heartbeat()) is not None
+
+
+async def test_clear_caches_reaches_connected_wallboxes(env):
+    from ocpp.routing import on
+    from ocpp.v16 import call_result
+    from ocpp.v16.enums import Action, ClearCacheStatus
+    from tests.ocpp_sim import SimChargePoint
+    cleared = []
+
+    async def on_clear_cache(self, **kwargs):
+        cleared.append(self.id)
+        return call_result.ClearCache(status=ClearCacheStatus.accepted)
+    SimChargePoint.on_clear_cache = on(Action.clear_cache)(on_clear_cache)
+    try:
+        async with connect_sim(env["port"], "CP1", PASSWORD) as cp:
+            await cp.call(call.Heartbeat())
+            assert await env["server"].clear_caches() == 1
+        assert cleared == ["CP1"]
+    finally:
+        del SimChargePoint.on_clear_cache

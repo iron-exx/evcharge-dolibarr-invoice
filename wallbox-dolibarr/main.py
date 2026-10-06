@@ -984,6 +984,7 @@ async def run_ocpp_mode(settings) -> None:
     global _ocpp_server
     server = build_ocpp_server(settings)
     _ocpp_server = server
+    api_state['ocpp_server'] = server     # Karte gesperrt → Cache der Wallboxen leeren
     await server.start(app_settings.ocpp_bind, app_settings.ocpp_port)
     # KEINE Restart-Recovery wie im HA-Pfad: offene Sessions bleiben 'active' —
     # die Wallbox liefert StopTransaction aus ihrer Offline-Queue nach.

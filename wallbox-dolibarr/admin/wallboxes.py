@@ -351,7 +351,8 @@ def register(app: web.Application, ctx) -> None:
                      '<input type="hidden" name="action" value="recommended"><button class="btn-2nd" type="submit">'
                      'Empfohlene übernehmen</button></form>' if connected and todo else '')
         rec = ('<label class="flabel">Empfohlene Einstellungen (Vorschau)</label><div class="hint">Zählerstand '
-               'jede Minute, Energie-Register mitsenden, Laden bei ungültiger Karte beenden.</div>'
+               'jede Minute, Energie-Register mitsenden, Laden bei ungültiger Karte beenden, bei Serverausfall '
+               'bekannte Karten weiter laden lassen.</div>'
                '<div class="tbl-wrap"><table><tr><th>Schlüssel</th><th>aktuell</th><th>empfohlen</th><th></th></tr>'
                f'{rec_rows}</table></div>{apply_btn}')
         if not cached:

@@ -39,6 +39,10 @@ RECOMMENDED_CONFIGURATION = (
     ('MeterValueSampleInterval', '60'),
     ('MeterValuesSampledData', 'Energy.Active.Import.Register'),
     ('StopTransactionOnInvalidId', 'true'),
+    # Fällt der Server aus, lädt die Wallbox Karten weiter, die er schon einmal
+    # freigegeben hat, und liefert die Ladungen nach (ExpenseCharge prüft dann erneut).
+    ('AuthorizationCacheEnabled', 'true'),
+    ('LocalAuthorizeOffline', 'true'),
 )
 
 

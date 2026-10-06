@@ -155,6 +155,13 @@ Die Vorschau zeigt vorher, was sich ändert:
 | `MeterValueSampleInterval` | `60` |
 | `MeterValuesSampledData` | `Energy.Active.Import.Register` |
 | `StopTransactionOnInvalidId` | `true` |
+| `AuthorizationCacheEnabled` | `true` |
+| `LocalAuthorizeOffline` | `true` |
+
+Die letzten beiden sorgen dafür, dass die Wallbox bei einem **Serverausfall** (Update,
+Neustart, Stromausfall) Karten weiter laden lässt, die schon einmal freigegeben waren — die
+Ladungen schickt sie nach. Wird eine Karte unter **Karten** gesperrt oder entfernt, leert
+ExpenseCharge den Cache aller verbundenen Wallboxen automatisch.
 
 Meldet die Wallbox `RebootRequired`: unter **Fernbefehle → Neustart der Wallbox (sanft)**.
 
@@ -213,6 +220,8 @@ ExpenseCharge entscheidet nur, **ob** übertragen wird.
 
 - **Wallbox offline:** sie puffert Start/Stop und schickt sie nach. Die Ladung landet
   im Monat der echten Ladung.
+- **Server nicht erreichbar:** mit den empfohlenen Einstellungen laden bekannte Karten weiter;
+  neue Karten erst wieder, wenn der Server da ist.
 - **Server-Neustart während einer Ladung:** die Ladung bleibt offen und wird mit der
   `StopTransaction` der Wallbox abgeschlossen — es wird kein Zählerstand geraten.
 - **Dolibarr offline:** Ladungen bleiben im lokalen Puffer und werden nachgereicht.

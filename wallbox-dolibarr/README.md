@@ -113,8 +113,10 @@ Optional lässt sich mit `ocpp_heartbeat_interval` (30–3600, Default 300) das
 Heartbeat-Intervall festlegen, das der Wallbox beim Anmelden mitgeteilt wird.
 
 `ocpp_apply_recommended_config: true` setzt nach jedem Wallbox-Start
-`MeterValueSampleInterval=60`, `MeterValuesSampledData=Energy.Active.Import.Register`
-und `StopTransactionOnInvalidId=true`. Ohne diese Option wird **nichts** an der Wallbox
+`MeterValueSampleInterval=60`, `MeterValuesSampledData=Energy.Active.Import.Register`,
+`StopTransactionOnInvalidId=true` sowie `AuthorizationCacheEnabled=true` und
+`LocalAuthorizeOffline=true` (bei Serverausfall laden bereits freigegebene Karten weiter;
+beim Sperren einer Karte wird der Cache der Wallboxen automatisch geleert). Ohne diese Option wird **nichts** an der Wallbox
 verändert.
 
 ### Unterstützte Wallboxen

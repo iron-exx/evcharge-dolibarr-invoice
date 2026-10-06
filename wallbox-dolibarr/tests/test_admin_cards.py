@@ -31,7 +31,7 @@ async def env(tmp_path, monkeypatch):
     async with TestClient(TestServer(create_app(sm, config, api_state))) as client:
         await _post(client, '/setup/1', '/setup/1',
                     {'code': '1234-5678', 'username': 'admin', 'password': PW, 'password2': PW})
-        yield {'client': client, 'sm': sm, 'dir': tmp_path, 'config': config}
+        yield {'client': client, 'sm': sm, 'dir': tmp_path, 'config': config, 'api_state': api_state}
 
 
 async def test_manual_add_validates_normalizes_and_audits(env):
@@ -76,3 +76,24 @@ async def test_whitelist_import(env):
     assert env['config']['rfid_whitelist'] == []
     assert 'EFCD083E' not in (env['dir'] / 'audit.log').read_text()
     assert 'in die Liste übernehmen' not in await (await c.get('/tags')).text()
+
+
+async def test_revoking_card_clears_wallbox_caches(env):
+    import asyncio
+    calls = []
+
+    class Server:
+        async def clear_caches(self):
+            calls.append(1)
+            return 1
+
+    env['api_state']['ocpp_server'] = Server()
+    c = env['client']
+    prefix = env['sm'].upsert_tag('EFCD083E', 'Poolwagen', 'business')['rfid_hash'][:16]
+    await _post(c, '/tags', '/tags/update', {'hash_prefix': prefix, 'label': 'x', 'mode': 'private'})
+    await asyncio.sleep(0.01)
+    assert calls == [], "nur beim Sperren"
+    await _post(c, '/tags', '/tags/update', {'hash_prefix': prefix, 'label': 'x', 'mode': 'unknown'})
+    await _post(c, '/tags', '/tags/delete', {'hash_prefix': prefix})
+    await asyncio.sleep(0.01)
+    assert calls == [1, 1], "gesperrt und entfernt → Cache geleert"
