@@ -473,7 +473,7 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
         return (shown + '<p class="hint"><b>Buchhaltung</b> sieht alle Ladevorgänge und Ladenachweise und kann '
                 'exportieren, aber nichts ändern. <b>Mitarbeiter</b> sehen nur die Ladungen ihrer Karte(n) und '
                 'ihren eigenen Ladenachweis.</p>' +
-                (f'<div class="tbl-wrap"><table><tr><th>Benutzer</th><th>Rolle</th><th>Karten</th><th></th></tr>'
+                (f'<div class="tbl-wrap"><table class="stack"><tr><th>Benutzer</th><th>Rolle</th><th>Karten</th><th></th></tr>'
                  f'{rows}</table></div>' if rows else '') +
                 '<form method="POST" action="/settings/users"><div class="grid2">'
                 '<div><label class="flabel">Benutzername</label><input name="username" required '

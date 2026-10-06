@@ -191,7 +191,7 @@ def register(app: web.Application, ctx) -> None:
                      f'<td class="mono">{_e(c.get("wallbox_id") or cp_id)}</td>'
                      f'<td class="st">{_e(_status_text(st))}</td>'
                      f'<td>{_e(" ".join(x for x in (st.get("vendor"), st.get("model")) if x))}</td></tr>')
-        table = (f'<div class="tbl-wrap"><table><tr><th>Wallbox</th><th>In der Abrechnung</th><th>Zustand</th>'
+        table = (f'<div class="tbl-wrap"><table class="stack"><tr><th>Wallbox</th><th>In der Abrechnung</th><th>Zustand</th>'
                  f'<th>Gerät</th></tr>{rows}</table></div>' if rows else
                  '<p class="empty">Noch keine Wallbox eingetragen.</p>')
         srv = server()
@@ -206,7 +206,7 @@ def register(app: web.Application, ctx) -> None:
                         f'value="{_e(cp_id)}"><button type="submit">Ignorieren</button></form></td></tr>')
         pending_card = ('</div><div class="card"><div class="card-title">Wartende Wallboxen</div>'
                         '<p class="hint">Diese IDs haben sich gemeldet, sind aber nicht eingetragen und wurden '
-                        f'abgewiesen.</p><div class="tbl-wrap"><table><tr><th>Kennung</th><th>Adresse</th>'
+                        f'abgewiesen.</p><div class="tbl-wrap"><table class="stack"><tr><th>Kennung</th><th>Adresse</th>'
                         f'<th>zuletzt</th><th></th></tr>{pending}</table></div>' if pending else '')
         body = (_restart_box(ctx) + mode_note() + table +
                 '<a class="btn-save" style="text-decoration:none" href="/wallboxes/new">Wallbox hinzufügen</a>'

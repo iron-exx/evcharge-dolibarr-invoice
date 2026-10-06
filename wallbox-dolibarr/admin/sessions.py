@@ -160,7 +160,7 @@ def register(app: web.Application, ctx) -> None:
         status_opts = ''.join(f'<option value="{k}"{" selected" if k == status else ""}>{_e(v[0])}</option>'
                               for k, v in STATUS.items())
         query = f'month={month}&status={status}'
-        table = (f'<div class="tbl-wrap"><table class="sess"><tr><th>Nr.</th><th>Beginn</th><th>kWh</th><th>Status</th>'
+        table = (f'<div class="tbl-wrap"><table class="sess stack"><tr><th>Nr.</th><th>Beginn</th><th>kWh</th><th>Status</th>'
                  f'<th>Karte</th><th>Wallbox</th><th></th></tr>{body_rows}</table></div>' if body_rows else
                  '<p class="empty">Keine Ladevorgänge für diese Auswahl.</p>')
         body = (f'<style>{_CSS}</style>' + ctx.flash.pop('sessions', '') + transmit_box(sm.session_counts()) +
@@ -274,7 +274,7 @@ def register(app: web.Application, ctx) -> None:
                     f'<a class="btn-2nd" href="/report?month={month}">Ladenachweis (PDF)</a></form>'
                     f'<div class="hint">{len(rows)} Ladung(en) · abrechenbar {_kwh(total)} kWh. „Ausstehend“ wird '
                     'automatisch an die Spesenabrechnung übertragen; „privat“ erscheint dort nie.</div>' +
-                    (f'<div class="tbl-wrap"><table class="sess"><tr><th>Beginn</th><th>kWh</th><th>Status</th>'
+                    (f'<div class="tbl-wrap"><table class="sess stack"><tr><th>Beginn</th><th>kWh</th><th>Status</th>'
                      f'<th>Wallbox</th></tr>{body_rows}</table></div>' if body_rows else
                      '<p class="empty">Keine Ladungen in diesem Monat.</p>'))
         return _page(ctx, request, 'Meine Ladungen', f'<style>{_CSS}</style>' + body, active='me')

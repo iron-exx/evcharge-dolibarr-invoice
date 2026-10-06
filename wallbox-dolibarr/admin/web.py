@@ -65,11 +65,25 @@ textarea{width:100%;min-height:110px;padding:10px 12px;background:var(--bg);bord
 .copy button{padding:0 12px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer}
 .hint{font-size:12px;color:var(--muted);margin:6px 0 4px;line-height:1.5}
 .audit td{font-size:12px;vertical-align:top}
+@media (max-width:560px){
+  table.stack,table.stack tbody{display:block;width:100%}
+  table.stack tr:first-child{display:none}
+  table.stack tr{display:block;border-bottom:1px solid var(--border);padding:8px 0}
+  table.stack td{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border:none!important;
+    padding:3px 0!important;text-align:right}
+  table.stack td::before{content:attr(data-label);font-weight:600;color:var(--muted);text-align:left;flex-shrink:0}
+  table.stack td:empty{display:none}
+}
 .tabs{display:flex;gap:6px;margin-bottom:12px}.tabs a{padding:6px 12px;border-radius:7px;border:1px solid var(--border);
   text-decoration:none;color:var(--text);font-size:13px}.tabs a.on{background:var(--primary-d);color:#fff;border-color:var(--primary-d)}
 """
 
 _COPY_JS = """<script>
+// Handy: Tabellen mit class="stack" als Karten — Beschriftung je Zelle aus der Kopfzeile
+document.querySelectorAll('table.stack').forEach(function(t){
+ var head=[].map.call(t.querySelectorAll('tr:first-child th'),function(th){return th.textContent;});
+ [].forEach.call(t.querySelectorAll('tr'),function(r){[].forEach.call(r.children,function(c,i){
+  if(c.tagName==='TD')c.setAttribute('data-label',head[i]||'');});});});
 function ecCopy(id){var el=document.getElementById(id);
  (navigator.clipboard?navigator.clipboard.writeText(el.value):Promise.reject())
  .catch(function(){el.select();document.execCommand&&document.execCommand('copy');});}
