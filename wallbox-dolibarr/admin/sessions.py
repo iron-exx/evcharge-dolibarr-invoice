@@ -247,6 +247,39 @@ def register(app: web.Application, ctx) -> None:
                                      f'Ladung #{sid} lässt sich nicht verwerfen (schon übertragen?).')
         raise back(request)
 
+    async def my_page(request):
+        month, _ = _filters(request)
+        mine = set(request.get('cards') or [])
+        rows = [s for s in sm.list_sessions(None if month == 'all' else month)
+                if (s.get('rfid_hash') or '')[:16] in mine and status_key(s) not in ('discarded',)]
+        months = sorted({(s.get('start_time') or '')[:7] for s in sm.list_sessions(limit=100000)
+                         if (s.get('rfid_hash') or '')[:16] in mine} - {''}, reverse=True) or [month]
+        if month not in months and month != 'all':
+            months.insert(0, month)
+        body_rows = ''.join(
+            f'<tr><td class="nowrap">{_e(_short(s.get("start_time")))}<div class="hint">bis '
+            f'{_e(_short(s.get("start_time"), s.get("end_time") or ""))}</div></td>'
+            f'<td class="td-bold">{_e(_kwh(s.get("total_kwh")))}</td>'
+            f'<td><span class="badge {STATUS.get(status_key(s), ("", "b-pend"))[1]}">'
+            f'{_e(STATUS.get(status_key(s), (status_key(s),))[0])}</span></td>'
+            f'<td class="mono">{_e(s.get("wallbox_id"))}</td></tr>' for s in rows)
+        total = sum(s.get('total_kwh') or 0 for s in rows if status_key(s) in ('pending', 'transmitted', 'rejected'))
+        if not mine:
+            body = _msg('warn', 'Ihrem Konto ist noch keine Karte zugeordnet – bitte beim Admin melden.')
+        else:
+            body = (f'<form method="GET" action="/me" class="filters"><div><label class="flabel">Monat</label>'
+                    '<select name="month">' + ''.join(f'<option{" selected" if m == month else ""}>{m}</option>'
+                                                      for m in months) +
+                    '</select></div><button class="btn-2nd" type="submit">Anzeigen</button>'
+                    f'<a class="btn-2nd" href="/report?month={month}">Ladenachweis (PDF)</a></form>'
+                    f'<div class="hint">{len(rows)} Ladung(en) · abrechenbar {_kwh(total)} kWh. „Ausstehend“ wird '
+                    'automatisch an die Spesenabrechnung übertragen; „privat“ erscheint dort nie.</div>' +
+                    (f'<div class="tbl-wrap"><table class="sess"><tr><th>Beginn</th><th>kWh</th><th>Status</th>'
+                     f'<th>Wallbox</th></tr>{body_rows}</table></div>' if body_rows else
+                     '<p class="empty">Keine Ladungen in diesem Monat.</p>'))
+        return _page(ctx, request, 'Meine Ladungen', f'<style>{_CSS}</style>' + body, active='me')
+
+    r.add_get('/me', my_page)
     r.add_get('/sessions', list_page)
     r.add_get('/sessions.csv', export_csv)
     r.add_post('/sessions/transmit', transmit)

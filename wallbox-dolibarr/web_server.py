@@ -1414,10 +1414,12 @@ def _fmt_kwh(value) -> str:
     return '' if value is None else f'{value:,.3f}'.replace(',', ' ').replace('.', ',').replace(' ', '.')
 
 
-def _build_report_page(session_manager, config, month, who='', base_href=''):
-    """Ladenachweis zum Ausdrucken (Browser → Drucken → Als PDF speichern)."""
+def _build_report_page(session_manager, config, month, who='', base_href='', allowed=None):
+    """Ladenachweis zum Ausdrucken (Browser → Drucken → Als PDF speichern).
+    allowed: Karten-Schlüssel, die der Betrachter sehen darf (Mitarbeiter: nur die eigenen)."""
     flat = float(config.get('tax_flat_price') or 0)
-    groups = [g for g in build_report(session_manager, month, flat) if not who or g['key'] == who]
+    groups = [g for g in build_report(session_manager, month, flat)
+              if (not who or g['key'] == who) and (allowed is None or g['key'] in allowed)]
     months = [f'{y}-{m:02d}' for y, m in _db_months(session_manager.db_path)] or [month]
     if month not in months:
         months.insert(0, month)
@@ -1736,10 +1738,13 @@ def create_app(session_manager, config, api_state):
         return month if len(month) == 7 and month[4] == '-' and month.replace('-', '').isdigit() \
             else datetime.now().strftime('%Y-%m')
 
+    def _report_allowed(request):
+        return set(request.get('cards') or []) if request.get('role') == 'mitarbeiter' else None
+
     async def handle_report(request):
         return web.Response(content_type='text/html', charset='utf-8', text=_build_report_page(
             session_manager, config, _report_month(request), request.rel_url.query.get('who', ''),
-            base_href=request.headers.get('X-Ingress-Path', '')))
+            base_href=request.headers.get('X-Ingress-Path', ''), allowed=_report_allowed(request)))
 
     async def handle_report_csv(request):
         month = _report_month(request)
@@ -1748,7 +1753,10 @@ def create_app(session_manager, config, api_state):
         w = csv.writer(out, delimiter=';')
         w.writerow(['Mitarbeiter/Karte', 'Datum', 'Beginn', 'Ende', 'Wallbox', 'Zähler Beginn (kWh)',
                     'Zähler Ende (kWh)', 'geladen (kWh)', 'Hinweis'])
+        allowed = _report_allowed(request)
         for g in build_report(session_manager, month, flat):
+            if allowed is not None and g['key'] not in allowed:
+                continue
             for r in g['rows']:
                 w.writerow([g['name'], r['start'][:10], r['start'][11:16], (r['end'] or '')[11:16], r['wallbox'],
                             _fmt_kwh(r['meter_start']), _fmt_kwh(r['meter_end']), _fmt_kwh(r['kwh']),

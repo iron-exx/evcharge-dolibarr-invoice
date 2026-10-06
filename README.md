@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Addon-2.1.0-22c55e" alt="Addon 2.1.0">
+  <img src="https://img.shields.io/badge/Addon-2.2.0-22c55e" alt="Addon 2.2.0">
   <img src="https://img.shields.io/badge/Dolibarr--Modul-2.3.6-14b8a6" alt="Dolibarr-Modul 2.3.6">
   <img src="https://img.shields.io/badge/Dolibarr-20–22-0f766e" alt="Dolibarr 20–22">
   <img src="https://img.shields.io/badge/OCPP-1.6J-0e7490" alt="OCPP 1.6J">
@@ -106,7 +106,9 @@ Ohne Home Assistant (standalone) ist die Web-Oberfläche zugleich die Verwaltung
 | **Einstellungen** | Betriebsparameter, Admin-Passwort, **Backup & Wiederherstellung** per Klick plus automatisch jede Nacht, **Benachrichtigung per E-Mail/Webhook**, wenn etwas liegen bleibt, Systeminfo |
 | **Protokoll** | jede Änderung mit Benutzer und Zeit, System-Log zum Filtern und Herunterladen |
 
-Anmeldung mit eigenem Admin-Konto, Schutz gegen CSRF und Passwort-Raten, Geheimnisse nur maskiert.
+Anmeldung mit eigenem Admin-Konto, dazu Konten für die **Buchhaltung** (alles lesen, nichts ändern) und für
+**Mitarbeiter** (nur die eigenen Ladungen und der eigene Ladenachweis). Schutz gegen CSRF und Passwort-Raten,
+Geheimnisse nur maskiert.
 
 ## 🧭 Welche Variante passt?
 

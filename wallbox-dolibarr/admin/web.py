@@ -29,6 +29,18 @@ from .store import AuditLog, ConfigStore, mask
 SESSION_COOKIE = 'ec_session'
 CSRF_COOKIE = 'ec_csrf'
 _PUBLIC = ('/health', '/login')
+# Was Buchhaltung und Mitarbeiter dürfen (Admin: alles). Alles andere → Startseite bzw. 403.
+ROLE_ACCESS = {
+    'buchhaltung': {'GET': ('/sessions', '/sessions.csv', '/history', '/export', '/report', '/report.csv',
+                            '/live.json', '/account'),
+                    'POST': ('/logout', '/account')},
+    'mitarbeiter': {'GET': ('/me', '/report', '/report.csv', '/account'), 'POST': ('/logout', '/account')},
+}
+ROLE_HOME = {'buchhaltung': '/sessions', 'mitarbeiter': '/me'}
+ROLE_NAV = {'buchhaltung': (('/sessions', 'Ladevorgänge'), ('/history', 'Verlauf'), ('/account', 'Mein Konto')),
+            'mitarbeiter': (('/me', 'Meine Ladungen'), ('/account', 'Mein Konto'))}
+ROLE_NAMES = {'admin': 'Admin', 'buchhaltung': 'Buchhaltung', 'mitarbeiter': 'Mitarbeiter'}
+_NAV = re.compile(r'<nav class="nav">.*?</nav>', re.DOTALL)
 _MAX_FORM = 1024 * 1024
 MAX_UPLOAD = 256 * 1024 * 1024     # Wiederherstellung eines Backups
 _FORM_POST = re.compile(r'(<form\b[^>]*\bmethod=["\']?post["\']?[^>]*>)', re.IGNORECASE)
@@ -122,6 +134,8 @@ def middleware(ctx: AdminContext):
         request['csrf'] = csrf
         has_account = ctx.accounts.exists()
         request['user'] = ctx.accounts.session_user(request.cookies.get(SESSION_COOKIE, ''))
+        request['role'] = ctx.accounts.role(request['user']) if request['user'] else None
+        request['cards'] = ctx.accounts.cards(request['user']) if request['role'] == 'mitarbeiter' else []
 
         if request.method == 'POST':
             sent = request.headers.get('X-CSRF-Token', '')
@@ -149,6 +163,11 @@ def middleware(ctx: AdminContext):
                 if request.method == 'GET' and 'json' not in path:
                     raise web.HTTPFound('/login?next=' + quote(str(request.rel_url), safe=''))
                 return _plain(401, 'Anmeldung erforderlich')
+            elif request['role'] != 'admin':
+                if path not in ROLE_ACCESS.get(request['role'], {}).get(request.method, ()):
+                    if request.method == 'GET':
+                        raise web.HTTPFound(ROLE_HOME.get(request['role'], '/account'))
+                    return _plain(403, 'Keine Berechtigung – diese Aktion darf nur der Admin.')
             elif path == '/' and request.method == 'GET' and _first_open_step(ctx) is not None:
                 raise web.HTTPFound(f'/setup/{_first_open_step(ctx)}')
 
@@ -185,6 +204,11 @@ def _decorate(page: str, request, ctx, has_account) -> str:
     else:
         acct = '<span class="acct"><a href="/login">Anmelden</a></span>'
     page = page.replace('<!--ec-account-->', acct)
+    role = request.get('role')
+    if role in ROLE_NAV:
+        links = ''.join(f'<a href="{href}" class="{"active" if request.path == href else ""}">{name}</a>'
+                        for href, name in ROLE_NAV[role])
+        return _NAV.sub(lambda _m: f'<nav class="nav">{links}</nav>', page, count=1)
     extra = ''.join(
         f'<a href="{href}" class="{"active" if request.path.startswith(prefixes) else ""}">{name}</a>'
         for href, prefixes, name in (('/wallboxes', '/wallbox', 'Wallboxen'), ('/sessions', '/sessions', 'Ladevorgänge'),
@@ -257,8 +281,8 @@ def _redirect(location: str) -> web.Response:
     return web.Response(status=302, headers={'Location': location})
 
 
-def _login_cookie(response, ctx, request):
-    response.set_cookie(SESSION_COOKIE, ctx.accounts.issue(), httponly=True, samesite='Strict',
+def _login_cookie(response, ctx, request, username=None):
+    response.set_cookie(SESSION_COOKIE, ctx.accounts.issue(username), httponly=True, samesite='Strict',
                         secure=_secure(request), path='/', max_age=SESSION_SECONDS)
 
 
@@ -296,11 +320,11 @@ def register(app: web.Application, ctx: AdminContext) -> None:
         if not nxt.startswith('/') or nxt.startswith('//'):
             nxt = '/'   # kein Weiterleiten auf fremde Seiten
         response = _redirect(nxt)
-        _login_cookie(response, ctx, request)
+        _login_cookie(response, ctx, request, form.get('username', ''))
         return response
 
     async def logout(request):
-        ctx.accounts.revoke_all()
+        ctx.accounts.revoke(request['user'])
         response = _redirect('/login')
         response.del_cookie(SESSION_COOKIE, path='/')
         return response
@@ -558,6 +582,41 @@ angemeldet möglich. Den <b>Einrichtungscode</b> zeigt das Container-Log:<br>
     r.add_get('/setup/5', step5)
     r.add_post('/restart', restart)
     r.add_get('/audit', audit_page)
+
+    async def account_page(request, error='', info=''):
+        role = ROLE_NAMES.get(request.get('role'), '')
+        body = f"""{_msg('err', error)}{_msg('ok', info)}
+<ul class="checks"><li><b>Benutzer</b> {_e(request['user'])}</li><li><b>Rolle</b> {_e(role)}</li></ul>
+<form method="POST" action="/account">
+  <label class="flabel">Aktuelles Passwort</label><input name="password" type="password" autocomplete="current-password" required>
+  <label class="flabel">Neues Passwort (mind. {validate.MIN_ADMIN_PASSWORD} Zeichen)</label>
+  <input name="new" type="password" autocomplete="new-password" required>
+  <label class="flabel">Neues Passwort wiederholen</label><input name="new2" type="password" autocomplete="new-password" required>
+  <button class="btn-save" type="submit">Passwort ändern</button>
+</form>"""
+        return _page(ctx, request, 'Mein Konto', body, active='account')
+
+    async def account_post(request):
+        form = await request.post()
+        key = _client_key(request)
+        if ctx.limiter.locked_for(key):
+            return await account_page(request, 'Zu viele Fehlversuche – bitte einige Minuten warten.')
+        if not ctx.accounts.check(request['user'], form.get('password') or ''):
+            ctx.limiter.failure(key)
+            return await account_page(request, 'Aktuelles Passwort falsch.')
+        try:
+            new = validate.admin_password(form.get('new'), form.get('new2'))
+        except ValueError as exc:
+            return await account_page(request, _e(exc))
+        ctx.limiter.success(key)
+        ctx.accounts.change_password(new, request['user'])
+        ctx.audit.record(request['user'], 'passwort', None, None, 'eigenes Passwort geändert')
+        response = await account_page(request, info='Passwort geändert.')
+        _login_cookie(response, ctx, request, request['user'])
+        return response
+
+    r.add_get('/account', account_page)
+    r.add_post('/account', account_post)
 
     from . import sessions, system, wallboxes   # hier, weil sie die Hilfen dieses Moduls nutzen
     wallboxes.register(app, ctx)

@@ -616,6 +616,10 @@ Nach dem Anmelden kommen zu Erfassen · Verlauf · Karten · System diese Seiten
   `data/backups/` (die letzten 14). **Benachrichtigungen** per E-Mail (SMTP) und/oder
   Webhook, wenn eine Ladung abgelehnt oder unvollständig ist, Ladungen in der Warteschlange
   hängen, eine Wallbox offline ist oder das Backup fehlt — jedes Problem einmal. Dazu **Systeminfo**
+- **Benutzer** (Einstellungen) — weitere Konten neben dem Admin: **Buchhaltung** sieht alle
+  Ladevorgänge und Ladenachweise und exportiert, ändert aber nichts; **Mitarbeiter** sehen unter
+  „Meine Ladungen“ nur die Ladungen ihrer Karte(n) und ihren eigenen Ladenachweis. Passwort wird
+  erzeugt und einmal angezeigt; jeder ändert seins unter „Mein Konto“
 - **Protokoll** — Änderungen (`data/audit.log`) und das **System-Log** der letzten
   2000 Zeilen seit dem Start, filterbar und zum Herunterladen
 

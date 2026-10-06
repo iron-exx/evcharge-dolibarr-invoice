@@ -16,6 +16,7 @@ import sqlite3
 import tempfile
 import time
 import re
+import secrets
 import zipfile
 from datetime import datetime
 
@@ -51,12 +52,16 @@ FIELDS = (
     ('trend_days', 'Tagesstreifen: Fenster (Tage)', 14, 1, 90, int),
 )
 _RESTART = 'Einstellungen'
+ROLE_LABELS = {'buchhaltung': 'Buchhaltung', 'mitarbeiter': 'Mitarbeiter'}
 _HOT = ('log_level', 'tax_flat_price')    # wirken ohne Neustart
-BACKUP_FILES = ('options.json', 'sessions.db', 'admin.json', 'secret.key', 'audit.log')
+BACKUP_FILES = ('options.json', 'sessions.db', 'admin.json', 'users.json', 'secret.key', 'audit.log')
 _MAX_RESTORE_BYTES = 200 * 1024 * 1024
 
 _CSS = """
-input[type=checkbox]{width:auto;vertical-align:middle;margin-right:6px}
+input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;margin-right:6px}
+.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.inline button{padding:5px 10px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface2);
+  cursor:pointer;font-size:12px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 14px}
 .logbox{font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all;background:var(--bg);
   border:1px solid var(--border);border-radius:8px;padding:10px;max-height:70vh;overflow:auto}
@@ -306,7 +311,7 @@ def register(app: web.Application, ctx) -> None:
         return ''
 
     # -- Einstellungen ----------------------------------------------------------------
-    def settings_body(request, values=None, error='', info=''):
+    def settings_body(request, values=None, error='', info='', reveal=None):
         values = values or {}
         level = values.get('log_level') or ctx.config.get('log_level') or 'INFO'
         inputs = ''
@@ -338,6 +343,7 @@ def register(app: web.Application, ctx) -> None:
             ('Datenverzeichnis', f'{ctx.data_dir} · frei {disk.free / 1024 ** 3:.1f} GB'),
         ]
         notify_form = notify_body(values if values.get('_form') == 'notify' else {})
+        users_html = users_body(reveal)
         bs = backup_status(ctx.data_dir)
         auto_backup = (f'<p class="hint"><b>Automatisch:</b> jede Nacht ein Backup nach <code>{_e(bs["folder"])}</code>, '
                        f'die letzten {DAILY_KEEP} bleiben. Zurzeit {bs["count"]}'
@@ -376,6 +382,8 @@ def register(app: web.Application, ctx) -> None:
   <button class="btn-2nd" type="submit">Passwort ändern</button>
   <div class="hint">Meldet alle anderen Sitzungen ab.</div>
 </form>
+</div><div class="card"><div class="card-title">Benutzer</div>
+{users_html}
 </div><div class="card"><div class="card-title">Benachrichtigungen</div>
 {notify_form}
 </div><div class="card"><div class="card-title">Backup</div>
@@ -432,6 +440,70 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
     <button class="btn-save" type="submit" name="action" value="save">Speichern</button>
   </div>
 </form>"""
+
+    def users_body(reveal=None):
+        tags = {t['rfid_hash'][:16]: t for t in ctx.session_manager.list_tags() if t.get('mode') != 'unknown'}
+        names = lambda cards: ', '.join((tags.get(c) or {}).get('label') or f'Karte {c[:8]}…' for c in cards) or '–'
+        rows = ''
+        for u in ctx.accounts.list_users():
+            name = _e(u['username'])
+            rows += (f'<tr><td><b>{name}</b></td><td>{_e(ROLE_LABELS[u["role"]])}</td>'
+                     f'<td>{_e(names(u.get("cards") or [])) if u["role"] == "mitarbeiter" else "alle"}</td>'
+                     '<td class="inline"><form method="POST" action="/settings/users">'
+                     f'<input type="hidden" name="username" value="{name}"><button name="action" value="reset" '
+                     'type="submit">Neues Passwort</button></form><form method="POST" action="/settings/users" '
+                     f'onsubmit="return confirm(\'Benutzer {name} löschen?\')"><input type="hidden" name="username" '
+                     f'value="{name}"><button name="action" value="delete" type="submit">Löschen</button></form></td></tr>')
+        shown = ''
+        if reveal:
+            shown = _msg('ok', f'Passwort für <b>{_e(reveal[0])}</b> – nur jetzt sichtbar, gleich weitergeben:'
+                               f'<div class="copy"><input id="newpw" readonly value="{_e(reveal[1])}"><button '
+                               'type="button" onclick="ecCopy(\'newpw\')">Kopieren</button></div>')
+        boxes = ''.join(f'<label class="hint" style="display:block"><input type="checkbox" name="cards" value="{_e(k)}"> '
+                        f'{_e(t.get("label") or "(ohne Namen)")} <span class="mono">{_e(k[:8])}…</span></label>'
+                        for k, t in sorted(tags.items(), key=lambda kv: (kv[1].get('label') or '').lower()))
+        return (shown + '<p class="hint"><b>Buchhaltung</b> sieht alle Ladevorgänge und Ladenachweise und kann '
+                'exportieren, aber nichts ändern. <b>Mitarbeiter</b> sehen nur die Ladungen ihrer Karte(n) und '
+                'ihren eigenen Ladenachweis.</p>' +
+                (f'<div class="tbl-wrap"><table><tr><th>Benutzer</th><th>Rolle</th><th>Karten</th><th></th></tr>'
+                 f'{rows}</table></div>' if rows else '') +
+                '<form method="POST" action="/settings/users"><div class="grid2">'
+                '<div><label class="flabel">Benutzername</label><input name="username" required '
+                'placeholder="z.B. mmueller" autocomplete="off"></div>'
+                '<div><label class="flabel">Rolle</label><select name="role"><option value="mitarbeiter">Mitarbeiter'
+                '</option><option value="buchhaltung">Buchhaltung</option></select></div></div>'
+                '<label class="flabel">Karten (nur für Mitarbeiter)</label>' +
+                (boxes or '<p class="hint">Noch keine Karten eingetragen – erst unter „Karten“ anlegen.</p>') +
+                '<div class="hint">Das Passwort wird erzeugt und einmal angezeigt.</div>'
+                '<button class="btn-2nd" type="submit" name="action" value="add">Benutzer anlegen</button></form>')
+
+    async def users_post(request):
+        form = await request.post()
+        action, name = form.get('action'), (form.get('username') or '').strip()
+        try:
+            if action == 'add':
+                name = validate.username(name)
+                role = form.get('role') if form.get('role') in ROLE_LABELS else 'mitarbeiter'
+                cards = [c for c in form.getall('cards', []) if len(c) == 16] if role == 'mitarbeiter' else []
+                pw = secrets.token_urlsafe(12)
+                ctx.accounts.add_user(name, pw, role, cards)
+                ctx.audit.record(request['user'], 'benutzer', None, f'{name} ({ROLE_LABELS[role]})', 'angelegt')
+                return page(request, 'Einstellungen', settings_body(request, info='Benutzer angelegt.',
+                                                                    reveal=(name, pw)))
+            if ctx.accounts.role(name) not in ROLE_LABELS:
+                raise ValueError('Benutzer nicht gefunden')
+            if action == 'reset':
+                pw = secrets.token_urlsafe(12)
+                ctx.accounts.change_password(pw, name)
+                ctx.audit.record(request['user'], 'benutzer', None, name, 'Passwort zurückgesetzt')
+                return page(request, 'Einstellungen', settings_body(request, reveal=(name, pw)))
+            if action == 'delete':
+                ctx.accounts.remove_user(name)
+                ctx.audit.record(request['user'], 'benutzer', name, None, 'gelöscht')
+                return page(request, 'Einstellungen', settings_body(request, info=f'Benutzer {_e(name)} gelöscht.'))
+        except ValueError as exc:
+            return page(request, 'Einstellungen', settings_body(request, error=_e(exc)))
+        raise web.HTTPBadRequest(text='Unbekannte Aktion')
 
     async def notify_post(request):
         from . import notify   # hier: notify nutzt selbst backup_status aus diesem Modul
@@ -586,6 +658,7 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
     r.add_post('/settings', settings_post)
     r.add_post('/settings/password', password_post)
     r.add_post('/settings/notify', notify_post)
+    r.add_post('/settings/users', users_post)
     r.add_post('/settings/backup', backup)
     r.add_post('/settings/restore', restore)
     r.add_get('/logs', logs_page)
