@@ -193,3 +193,18 @@ async def test_update_hint_on_settings(env):
     env['ctx'].latest_version = '99.0.0'
     page = await (await env['client'].get('/settings')).text()
     assert 'Update verfügbar: 99.0.0' in page and 'git pull' in page
+
+
+async def test_report_recipients_and_user_email(env):
+    c = env['client']
+    form = {'email_to': '', 'report_to': 'buchhaltung@firma.de, chef@firma.de', 'smtp_host': 'mail.firma.de',
+            'smtp_port': '587', 'smtp_tls': 'starttls', 'smtp_user': '', 'smtp_password': '', 'smtp_from': '',
+            'webhook_url': '', 'offline_hours': '2', 'pending_hours': '6', 'action': 'save'}
+    r = await _post(c, '/settings', '/settings/notify', {**form, 'report_to': 'kaputt'})
+    assert 'keine gültige Adresse' in await r.text()
+    await _post(c, '/settings', '/settings/notify', form)
+    assert _saved(env)['notify']['report_to'] == 'buchhaltung@firma.de, chef@firma.de'
+    env['ctx'].accounts.add_user('mmueller', 'mm-passwort-12', 'mitarbeiter', ['a' * 16])
+    r = await _post(c, '/settings', '/settings/users', {'username': 'mmueller', 'email': 'max@firma.de', 'action': 'email'})
+    assert 'E-Mail gespeichert' in await r.text()
+    assert env['ctx'].accounts.list_users()[0]['email'] == 'max@firma.de'

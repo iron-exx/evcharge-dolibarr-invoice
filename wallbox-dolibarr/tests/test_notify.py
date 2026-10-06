@@ -116,3 +116,35 @@ def test_no_backup_alert_in_home_assistant(ctx):
     ha = types.SimpleNamespace(config=ctx.config, session_manager=ctx.session_manager, ocpp=None,
                                data_dir=ctx.data_dir, latest_version=None, standalone=False)
     assert 'backup' not in notify.collect_alerts(ha), "HA sichert selbst"
+
+
+def test_monthly_report_mail(ctx, monkeypatch):
+    from datetime import date
+    from utils.hash import hash_rfid
+    sm = ctx.session_manager
+    for uid, name in (('04A1B2C3', 'Max Müller'), ('EFCD083E', 'Eva Schmidt')):
+        sm.upsert_tag(uid, name, 'business')
+        conn = sqlite3.connect(sm.db_path)
+        conn.execute("INSERT INTO sessions (rfid_hash, wallbox_id, start_time, end_time, start_energy_kwh, end_energy_kwh,"
+                     " total_kwh, status, created_at) VALUES (?, 'w', '2026-10-03T08:00:00', '2026-10-03T09:00:00', 1, 6,"
+                     " 5, 'completed', 'x')", (hash_rfid(uid),))
+        conn.commit()
+        conn.close()
+    ctx.accounts.create('admin', 'admin-passwort-1')
+    ctx.accounts.add_user('mmueller', 'mm-passwort-12', 'mitarbeiter', [hash_rfid('04A1B2C3')[:16]], email='max@firma.de')
+    ctx.config['notify'] = {'email_to': 'it@firma.de', 'report_to': 'buchhaltung@firma.de', 'smtp_host': 'mail.firma.de',
+                            'smtp_tls': 'none'}
+    sent = []
+    monkeypatch.setattr(notify, '_deliver', lambda cfg, msg: sent.append(msg))
+    assert notify.send_monthly_reports(ctx, today=date(2026, 10, 20)) == [], "nur am Monatsanfang für den Vormonat"
+    to = notify.send_monthly_reports(ctx, today=date(2026, 11, 1))
+    assert sorted(to) == ['buchhaltung@firma.de', 'max@firma.de']
+    by_to = {m['To']: m for m in sent}
+    bh = by_to['buchhaltung@firma.de']
+    assert 'Oktober 2026' in bh['Subject']
+    html_part = bh.get_body(('html',)).get_content()
+    assert 'Max Müller' in html_part and 'Eva Schmidt' in html_part
+    assert any(p.get_filename() == 'ladenachweis_2026-10.csv' for p in bh.iter_attachments())
+    mine = by_to['max@firma.de'].get_body(('html',)).get_content()
+    assert 'Max Müller' in mine and 'Eva Schmidt' not in mine, "Mitarbeiter bekommt nur den eigenen"
+    assert notify.send_monthly_reports(ctx, today=date(2026, 11, 2)) == [], "jeder Monat nur einmal"

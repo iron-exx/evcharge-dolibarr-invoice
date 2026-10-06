@@ -83,7 +83,7 @@ werden lokal gepuffert und nachgereicht.
 - **Duplikatschutz**: dieselbe Ladung wird nie doppelt abgerechnet, auch bei Wiederholungen
 - **Ladenachweis für das Finanzamt**: je Mitarbeiter und Monat mit Zählerständen, als PDF oder CSV — passend zur
   Erstattung nach BMF-Schreiben vom 11.11.2025 (seit 2026 nur gegen Nachweis der kWh; Strompreis-Pauschale
-  2026: 34 ct/kWh)
+  2026: 34 ct/kWh); standalone am Monatsanfang automatisch per E-Mail an Buchhaltung und Mitarbeiter
 - Lehnt Dolibarr eine Ladung ab (z.B. Karte keinem Mitarbeiter zugeordnet), wird sie zurückgestellt — alle
   anderen werden weiter übertragen
 - Ladungen werden lokal gepuffert (SQLite) und bei Ausfall automatisch nachgereicht

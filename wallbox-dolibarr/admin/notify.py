@@ -11,7 +11,7 @@ import logging
 import os
 import smtplib
 import ssl
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 
 import requests
@@ -103,6 +103,88 @@ def check_and_notify(ctx, send, alerts=None) -> list:
     return new
 
 
+def _message(cfg, to, subject, text, html_body=None, attachments=()) -> EmailMessage:
+    msg = EmailMessage()
+    msg['Subject'], msg['To'] = subject, to
+    msg['From'] = cfg.get('smtp_from') or cfg.get('smtp_user') or cfg.get('email_to') or to
+    msg.set_content(text)
+    if html_body:
+        msg.add_alternative(html_body, subtype='html')
+    for name, data, mime in attachments:
+        maintype, subtype = mime.split('/')
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
+    return msg
+
+
+def _deliver(cfg, msg) -> None:
+    tls = cfg.get('smtp_tls', 'starttls')
+    factory = smtplib.SMTP_SSL if tls == 'ssl' else smtplib.SMTP
+    kwargs = {'context': ssl.create_default_context()} if tls == 'ssl' else {}
+    with factory(cfg['smtp_host'], int(cfg.get('smtp_port') or 587), timeout=20, **kwargs) as smtp:
+        if tls == 'starttls':
+            smtp.starttls(context=ssl.create_default_context())
+        if cfg.get('smtp_user'):
+            smtp.login(cfg['smtp_user'], cfg.get('smtp_password') or '')
+        smtp.send_message(msg)
+
+
+_MAIL_CSS = ('body{font-family:Arial,sans-serif;color:#111}.card{border:1px solid #ccc;border-radius:8px;padding:12px;'
+             'margin:12px 0}table{border-collapse:collapse;width:100%}td,th{padding:4px 8px;border-bottom:1px solid #eee;'
+             'font-size:12px;text-align:left}.num{text-align:right}.rep-sum td{font-weight:bold;border-top:2px solid #111}'
+             '.rep-note,.card-title{font-size:11px;color:#555}')
+
+
+def send_monthly_reports(ctx, today=None) -> list:
+    """Am Monatsanfang den Ladenachweis des Vormonats verschicken: an report_to alles, an jeden Mitarbeiter
+    mit E-Mail-Adresse nur seinen. Jeder Monat nur einmal (data/report_sent.json). → Empfänger."""
+    from web_server import _report_cards, build_report, report_csv, report_meta   # hier: web_server importiert admin
+    today = today or date.today()
+    if today.day > 7:           # bis zum 7. nachholen, falls der Server am 1. aus war
+        return []
+    month = (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+    state_path = os.path.join(ctx.data_dir, 'report_sent.json')
+    try:
+        with open(state_path) as f:
+            if json.load(f).get('month') == month:
+                return []
+    except (OSError, ValueError, AttributeError):
+        pass
+    cfg = settings(ctx.config)
+    if not cfg.get('smtp_host'):
+        return []
+    flat = float(ctx.config.get('tax_flat_price') or 0)
+    groups = build_report(ctx.session_manager, month, flat)
+    month_name, method = report_meta(month, flat)
+    jobs = [(to.strip(), None) for to in (cfg.get('report_to') or '').split(',') if to.strip()]
+    accounts = getattr(ctx, 'accounts', None)
+    for u in (accounts.list_users() if accounts else []):
+        if u.get('role') == 'mitarbeiter' and u.get('email') and u.get('cards'):
+            jobs.append((u['email'], set(u['cards'])))
+    sent = []
+    for to, allowed in jobs:
+        mine = [g for g in groups if allowed is None or g['key'] in allowed]
+        if not mine:
+            continue
+        body = (f'<html><head><style>{_MAIL_CSS}</style></head><body><p>Ladenachweis {month_name} '
+                f'({len(mine)} Person(en)) – automatisch von ExpenseCharge.</p>'
+                f'{_report_cards(mine, month_name, method)}</body></html>')
+        csv_text = '\ufeff' + report_csv(ctx.session_manager, month, flat, allowed)
+        msg = _message(cfg, to, f'Ladenachweis Dienstwagen {month_name}',
+                       f'Ladenachweis {month_name} – Tabelle in der HTML-Ansicht, CSV im Anhang.', body,
+                       [(f'ladenachweis_{month}.csv', csv_text.encode('utf-8'), 'text/csv')])
+        try:
+            _deliver(cfg, msg)
+            sent.append(to)
+        except Exception as exc:
+            _LOGGER.error("Ladenachweis an %s nicht zugestellt: %s", to, exc)
+    if sent or not jobs:
+        with open(state_path, 'w') as f:
+            json.dump({'month': month}, f)
+    if sent:
+        _LOGGER.info("Ladenachweis %s verschickt an %d Empfänger", month, len(sent))
+    return sent
+
+
 def send(cfg: dict, subject: str, lines: list) -> list:
     """E-Mail und/oder Webhook. → Fehlermeldungen (leer = alles zugestellt)."""
     text = '\n'.join(f'• {line}' for line in lines)
@@ -122,19 +204,9 @@ def send(cfg: dict, subject: str, lines: list) -> list:
                 errors.append(f'Home Assistant ({service}): {exc}')
     if cfg.get('email_to'):
         try:
-            msg = EmailMessage()
-            msg['Subject'], msg['To'] = subject, cfg['email_to']
-            msg['From'] = cfg.get('smtp_from') or cfg.get('smtp_user') or cfg['email_to']
-            msg.set_content(text + '\n\nDetails in der Oberfläche unter „Ladevorgänge“ bzw. „Wallboxen“.\n')
-            tls = cfg.get('smtp_tls', 'starttls')
-            factory = smtplib.SMTP_SSL if tls == 'ssl' else smtplib.SMTP
-            kwargs = {'context': ssl.create_default_context()} if tls == 'ssl' else {}
-            with factory(cfg['smtp_host'], int(cfg.get('smtp_port') or 587), timeout=20, **kwargs) as smtp:
-                if tls == 'starttls':
-                    smtp.starttls(context=ssl.create_default_context())
-                if cfg.get('smtp_user'):
-                    smtp.login(cfg['smtp_user'], cfg.get('smtp_password') or '')
-                smtp.send_message(msg)
+            msg = _message(cfg, cfg['email_to'], subject,
+                           text + '\n\nDetails in der Oberfläche unter „Ladevorgänge“ bzw. „Wallboxen“.\n')
+            _deliver(cfg, msg)
         except Exception as exc:
             errors.append(f'E-Mail: {exc}')
     if cfg.get('webhook_url'):
@@ -157,5 +229,7 @@ async def notify_loop(ctx) -> None:
                     for err in send(cfg, subject, lines):
                         _LOGGER.error("Benachrichtigung nicht zugestellt — %s", err)
                 await asyncio.to_thread(check_and_notify, ctx, deliver)
+            if getattr(ctx, 'standalone', True):
+                await asyncio.to_thread(send_monthly_reports, ctx)
         except Exception as exc:   # Benachrichtigen darf nie den Betrieb stören
             _LOGGER.warning("Benachrichtigungen: %s", exc)

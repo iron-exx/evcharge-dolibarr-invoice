@@ -124,14 +124,14 @@ class AccountStore:
     def list_users(self) -> list:
         return [{k: v for k, v in u.items() if k != 'password'} for u in self._users()]
 
-    def add_user(self, username: str, password: str, role: str, cards=()) -> None:
+    def add_user(self, username: str, password: str, role: str, cards=(), email: str = '') -> None:
         if role not in ROLES:
             raise ValueError('Rolle: Buchhaltung oder Mitarbeiter')
         if self._account(username)[0] is not None:
             raise ValueError(f'Benutzer {username} gibt es schon')
         users = self._users()
         users.append({'username': username, 'password': hash_password(password), 'role': role,
-                      'cards': list(cards), 'epoch': 0})
+                      'cards': list(cards), 'email': email, 'epoch': 0})
         self._save_users(users)
 
     def update_cards(self, username: str, cards) -> None:
@@ -139,6 +139,13 @@ class AccountStore:
         for u in users:
             if u.get('username') == username:
                 u['cards'] = list(cards)
+        self._save_users(users)
+
+    def set_email(self, username: str, email: str) -> None:
+        users = self._users()
+        for u in users:
+            if u.get('username') == username:
+                u['email'] = email
         self._save_users(users)
 
     def remove_user(self, username: str) -> None:

@@ -1432,28 +1432,34 @@ def _fmt_kwh(value) -> str:
     return '' if value is None else f'{value:,.3f}'.replace(',', ' ').replace('.', ',').replace(' ', '.')
 
 
-def _build_report_page(session_manager, config, month, who='', base_href='', allowed=None):
-    """Ladenachweis zum Ausdrucken (Browser → Drucken → Als PDF speichern).
-    allowed: Karten-Schlüssel, die der Betrachter sehen darf (Mitarbeiter: nur die eigenen)."""
-    flat = float(config.get('tax_flat_price') or 0)
-    groups = [g for g in build_report(session_manager, month, flat)
-              if (not who or g['key'] == who) and (allowed is None or g['key'] in allowed)]
-    months = [f'{y}-{m:02d}' for y, m in _db_months(session_manager.db_path)] or [month]
-    if month not in months:
-        months.insert(0, month)
-    y, m = int(month[:4]), int(month[5:7])
-    month_name = f'{_MONTHS_LONG[m - 1]} {y}'
+def report_csv(session_manager, month, flat, allowed=None) -> str:
+    """Ladenachweis als CSV (Semikolon, Dezimalkomma) — Download und E-Mail-Anhang."""
+    out = io.StringIO()
+    w = csv.writer(out, delimiter=';')
+    w.writerow(['Mitarbeiter/Karte', 'Datum', 'Beginn', 'Ende', 'Wallbox', 'Zähler Beginn (kWh)',
+                'Zähler Ende (kWh)', 'geladen (kWh)', 'Hinweis'])
+    for g in build_report(session_manager, month, flat):
+        if allowed is not None and g['key'] not in allowed:
+            continue
+        for r in g['rows']:
+            w.writerow([g['name'], r['start'][:10], r['start'][11:16], (r['end'] or '')[11:16], r['wallbox'],
+                        _fmt_kwh(r['meter_start']), _fmt_kwh(r['meter_end']), _fmt_kwh(r['kwh']),
+                        'manuell erfasst – kein Zählernachweis' if r['manual'] else ''])
+        w.writerow([g['name'], 'Summe', '', '', '', '', '', _fmt_kwh(g['kwh']),
+                    f'Erstattung {_fmt_eur(g["amount"])}' if g['amount'] is not None else ''])
+    return out.getvalue()
+
+
+def report_meta(month: str, flat: float):
+    """('Oktober 2026', 'Strompreis-Pauschale 0,34 €/kWh' bzw. 'tatsächliche Stromkosten …')."""
+    month_name = f'{_MONTHS_LONG[int(month[5:7]) - 1]} {month[:4]}'
     method = (f'Strompreis-Pauschale {flat:.2f} €/kWh'.replace('.', ',') if flat else
               'tatsächliche Stromkosten (Preis lt. Dolibarr-Spesenabrechnung)')
-    controls = (f'<div class="card no-print"><form method="GET" action="report" class="rep-head">'
-                f'<div><label class="flabel">Monat</label><select name="month">' +
-                ''.join(f'<option{" selected" if x == month else ""}>{x}</option>' for x in months) +
-                '</select></div><button class="btn-dl" type="submit">Anzeigen</button>'
-                f'<a class="btn-dl" href="report.csv?month={month}">CSV</a>'
-                '<button class="btn-dl" type="button" onclick="window.print()">Drucken / PDF</button></form>'
-                '<div class="rep-note">Je Mitarbeiter bzw. Karte eine Seite. Abrechnungsmethode: ' +
-                html.escape(method) + ' – einstellbar über <code>tax_flat_price</code> (2026: 0,34 €; 0 = tatsächliche '
-                'Kosten). Die Wahl gilt einheitlich für das ganze Kalenderjahr.</div></div>')
+    return month_name, method
+
+
+def _report_cards(groups, month_name, method) -> str:
+    """Je Person eine Karte — für die Seite UND die monatliche E-Mail."""
     cards = ''
     for g in groups:
         body = ''
@@ -1484,6 +1490,32 @@ def _build_report_page(session_manager, config, month, who='', base_href='', all
   (BMF-Schreiben vom 11.11.2025). Zählerstände aus der Wallbox (Start-/Stoppzählerstand bzw. MeterValues);
   Ladungen privat eingeordneter Karten sind nicht enthalten.</div>
 </div>"""
+    return cards
+
+
+def _build_report_page(session_manager, config, month, who='', base_href='', allowed=None):
+    """Ladenachweis zum Ausdrucken (Browser → Drucken → Als PDF speichern).
+    allowed: Karten-Schlüssel, die der Betrachter sehen darf (Mitarbeiter: nur die eigenen)."""
+    flat = float(config.get('tax_flat_price') or 0)
+    groups = [g for g in build_report(session_manager, month, flat)
+              if (not who or g['key'] == who) and (allowed is None or g['key'] in allowed)]
+    months = [f'{y}-{m:02d}' for y, m in _db_months(session_manager.db_path)] or [month]
+    if month not in months:
+        months.insert(0, month)
+    y, m = int(month[:4]), int(month[5:7])
+    month_name = f'{_MONTHS_LONG[m - 1]} {y}'
+    method = (f'Strompreis-Pauschale {flat:.2f} €/kWh'.replace('.', ',') if flat else
+              'tatsächliche Stromkosten (Preis lt. Dolibarr-Spesenabrechnung)')
+    controls = (f'<div class="card no-print"><form method="GET" action="report" class="rep-head">'
+                f'<div><label class="flabel">Monat</label><select name="month">' +
+                ''.join(f'<option{" selected" if x == month else ""}>{x}</option>' for x in months) +
+                '</select></div><button class="btn-dl" type="submit">Anzeigen</button>'
+                f'<a class="btn-dl" href="report.csv?month={month}">CSV</a>'
+                '<button class="btn-dl" type="button" onclick="window.print()">Drucken / PDF</button></form>'
+                '<div class="rep-note">Je Mitarbeiter bzw. Karte eine Seite. Abrechnungsmethode: ' +
+                html.escape(method) + ' – einstellbar über <code>tax_flat_price</code> (2026: 0,34 €; 0 = tatsächliche '
+                'Kosten). Die Wahl gilt einheitlich für das ganze Kalenderjahr.</div></div>')
+    cards = _report_cards(groups, month_name, method)
     if not groups:
         cards = '<div class="card"><p class="empty">Keine geschäftlichen Ladungen in diesem Monat.</p></div>'
     return _base('history', f'<style>{_REPORT_CSS}</style>' + controls + cards, base_href=base_href)
@@ -1770,21 +1802,8 @@ def create_app(session_manager, config, api_state):
     async def handle_report_csv(request):
         month = _report_month(request)
         flat = float(config.get('tax_flat_price') or 0)
-        out = io.StringIO()
-        w = csv.writer(out, delimiter=';')
-        w.writerow(['Mitarbeiter/Karte', 'Datum', 'Beginn', 'Ende', 'Wallbox', 'Zähler Beginn (kWh)',
-                    'Zähler Ende (kWh)', 'geladen (kWh)', 'Hinweis'])
-        allowed = _report_allowed(request)
-        for g in build_report(session_manager, month, flat):
-            if allowed is not None and g['key'] not in allowed:
-                continue
-            for r in g['rows']:
-                w.writerow([g['name'], r['start'][:10], r['start'][11:16], (r['end'] or '')[11:16], r['wallbox'],
-                            _fmt_kwh(r['meter_start']), _fmt_kwh(r['meter_end']), _fmt_kwh(r['kwh']),
-                            'manuell erfasst – kein Zählernachweis' if r['manual'] else ''])
-            w.writerow([g['name'], 'Summe', '', '', '', '', '', _fmt_kwh(g['kwh']),
-                        f'Erstattung {_fmt_eur(g["amount"])}' if g['amount'] is not None else ''])
-        return web.Response(body=('\ufeff' + out.getvalue()).encode('utf-8'), content_type='text/csv', charset='utf-8',
+        out_text = report_csv(session_manager, month, flat, _report_allowed(request))
+        return web.Response(body=('\ufeff' + out_text).encode('utf-8'), content_type='text/csv', charset='utf-8',
                             headers={'Content-Disposition': f'attachment; filename="ladenachweis_{month}.csv"'})
 
     # -- GET /live.json (JSON-Endpoint für JS-Polling, flackerfrei) ----------

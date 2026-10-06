@@ -102,6 +102,13 @@ def _uptime() -> str:
     return f'{s // 86400} d {s % 86400 // 3600} h {s % 3600 // 60} min'
 
 
+def _email(value) -> str:
+    value = (value or '').strip()
+    if value and ('@' not in value or ' ' in value or len(value) > 200):
+        raise ValueError(f'„{value}“ ist keine gültige E-Mail-Adresse')
+    return value
+
+
 def make_backup(data_dir: str) -> bytes:
     """ZIP der Daten. Die Datenbank über die SQLite-Backup-API — eine bloße
     Dateikopie wäre bei laufendem Schreiben (WAL) inkonsistent."""
@@ -438,6 +445,9 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
     <div><label class="flabel">SMTP-Passwort</label><input name="smtp_password" type="password" autocomplete="new-password">
       <div class="hint">{pw_hint}</div></div>
     <div><label class="flabel">Absender</label><input name="smtp_from" value="{_e(v('smtp_from'))}" placeholder="expensecharge@firma.de"></div>
+    <div><label class="flabel">Ladenachweis monatlich an</label><input name="report_to" value="{_e(v('report_to'))}" placeholder="buchhaltung@firma.de">
+      <div class="hint">am 1. für den Vormonat, alle Mitarbeiter; mehrere Adressen mit Komma. Mitarbeiter mit
+      E-Mail-Adresse (unter „Benutzer“) bekommen zusätzlich ihren eigenen.</div></div>
     <div><label class="flabel">Webhook-URL (optional)</label><input name="webhook_url" value="{_e(v('webhook_url'))}" placeholder="https://n8n.firma.de/webhook/…">
       <div class="hint">POST mit JSON <code>{{"title", "text", "alerts"}}</code> – z.B. n8n, ntfy, Home Assistant</div></div>
     <div><label class="flabel">Wallbox offline melden nach (h)</label><input name="offline_hours" inputmode="numeric" value="{_e(v('offline_hours'))}"></div>
@@ -455,7 +465,11 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
         rows = ''
         for u in ctx.accounts.list_users():
             name = _e(u['username'])
-            rows += (f'<tr><td><b>{name}</b></td><td>{_e(ROLE_LABELS[u["role"]])}</td>'
+            email_form = (f'<form method="POST" action="/settings/users" class="inline"><input type="hidden" '
+                          f'name="username" value="{name}"><input name="email" type="email" value="{_e(u.get("email"))}" '
+                          'placeholder="E-Mail" style="width:170px"><button name="action" value="email" type="submit">'
+                          'Speichern</button></form>' if u['role'] == 'mitarbeiter' else '')
+            rows += (f'<tr><td><b>{name}</b>{email_form}</td><td>{_e(ROLE_LABELS[u["role"]])}</td>'
                      f'<td>{_e(names(u.get("cards") or [])) if u["role"] == "mitarbeiter" else "alle"}</td>'
                      '<td class="inline"><form method="POST" action="/settings/users">'
                      f'<input type="hidden" name="username" value="{name}"><button name="action" value="reset" '
@@ -479,7 +493,9 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
                 '<div><label class="flabel">Benutzername</label><input name="username" required '
                 'placeholder="z.B. mmueller" autocomplete="off"></div>'
                 '<div><label class="flabel">Rolle</label><select name="role"><option value="mitarbeiter">Mitarbeiter'
-                '</option><option value="buchhaltung">Buchhaltung</option></select></div></div>'
+                '</option><option value="buchhaltung">Buchhaltung</option></select></div>'
+                '<div><label class="flabel">E-Mail (optional)</label><input name="email" type="email" '
+                'placeholder="für den monatlichen Ladenachweis"></div></div>'
                 '<label class="flabel">Karten (nur für Mitarbeiter)</label>' +
                 (boxes or '<p class="hint">Noch keine Karten eingetragen – erst unter „Karten“ anlegen.</p>') +
                 '<div class="hint">Das Passwort wird erzeugt und einmal angezeigt.</div>'
@@ -494,12 +510,16 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
                 role = form.get('role') if form.get('role') in ROLE_LABELS else 'mitarbeiter'
                 cards = [c for c in form.getall('cards', []) if len(c) == 16] if role == 'mitarbeiter' else []
                 pw = secrets.token_urlsafe(12)
-                ctx.accounts.add_user(name, pw, role, cards)
+                ctx.accounts.add_user(name, pw, role, cards, email=_email(form.get('email')))
                 ctx.audit.record(request['user'], 'benutzer', None, f'{name} ({ROLE_LABELS[role]})', 'angelegt')
                 return page(request, 'Einstellungen', settings_body(request, info='Benutzer angelegt.',
                                                                     reveal=(name, pw)))
             if ctx.accounts.role(name) not in ROLE_LABELS:
                 raise ValueError('Benutzer nicht gefunden')
+            if action == 'email':
+                ctx.accounts.set_email(name, _email(form.get('email')))
+                ctx.audit.record(request['user'], 'benutzer', None, name, 'E-Mail geändert')
+                return page(request, 'Einstellungen', settings_body(request, info='E-Mail gespeichert.'))
             if action == 'reset':
                 pw = secrets.token_urlsafe(12)
                 ctx.accounts.change_password(pw, name)
@@ -519,14 +539,17 @@ Behobene Probleme melden sich beim nächsten Auftreten wieder.</p>
         stored = notify.settings(ctx.config)
         try:
             new = {}
-            for key in ('email_to', 'smtp_host', 'smtp_user', 'smtp_from', 'webhook_url'):
+            for key in ('email_to', 'report_to', 'smtp_host', 'smtp_user', 'smtp_from', 'webhook_url'):
                 new[key] = (form.get(key) or '').strip()
                 if len(new[key]) > 200 or not new[key].isprintable():
                     raise ValueError(f'{key}: höchstens 200 druckbare Zeichen')
             for key in ('email_to', 'smtp_from'):
                 if new[key] and ('@' not in new[key] or ' ' in new[key]):
                     raise ValueError(f'{"E-Mail an" if key == "email_to" else "Absender"}: keine gültige Adresse')
-            if new['email_to'] and not new['smtp_host']:
+            for addr in filter(None, (a.strip() for a in new['report_to'].split(','))):
+                if '@' not in addr or ' ' in addr:
+                    raise ValueError(f'Ladenachweis an: „{addr}“ ist keine gültige Adresse')
+            if (new['email_to'] or new['report_to']) and not new['smtp_host']:
                 raise ValueError('Für E-Mail wird ein SMTP-Server gebraucht')
             if new['webhook_url'] and not new['webhook_url'].startswith(('http://', 'https://')):
                 raise ValueError('Webhook-URL: mit http:// oder https:// angeben')

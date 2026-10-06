@@ -618,7 +618,9 @@ Nach dem Anmelden kommen zu Übersicht · Verlauf · Karten · System diese Seit
   Beides verlangt das Admin-Passwort. Zusätzlich **automatisch jede Nacht** nach
   `data/backups/` (die letzten 14). **Benachrichtigungen** per E-Mail (SMTP) und/oder
   Webhook, wenn eine Ladung abgelehnt oder unvollständig ist, Ladungen in der Warteschlange
-  hängen, eine Wallbox offline ist oder das Backup fehlt — jedes Problem einmal. Dazu **Systeminfo**
+  hängen, eine Wallbox offline ist oder das Backup fehlt — jedes Problem einmal. **Ladenachweis
+  monatlich per E-Mail**: am 1. für den Vormonat an die Buchhaltung (alle) und an jeden Mitarbeiter
+  mit E-Mail-Adresse (nur seiner), als Tabelle plus CSV-Anhang. Dazu **Systeminfo**
 - **Benutzer** (Einstellungen) — weitere Konten neben dem Admin: **Buchhaltung** sieht alle
   Ladevorgänge und Ladenachweise und exportiert, ändert aber nichts; **Mitarbeiter** sehen unter
   „Meine Ladungen“ nur die Ladungen ihrer Karte(n) und ihren eigenen Ladenachweis. Passwort wird
