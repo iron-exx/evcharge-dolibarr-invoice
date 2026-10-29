@@ -16,7 +16,6 @@ on:
 
 jobs:
   build:
-    if: github.repository == 'systemwerk-GmbH-Co-KG/ExpenseCharge'
     name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
     permissions:
@@ -55,6 +54,8 @@ jobs:
           V=$(grep -E '^version:' wallbox-dolibarr/config.yaml | head -1 | sed -E 's/.*"(.*)".*/\1/')
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Addon-Version: $V"
+          # GHCR verlangt Kleinbuchstaben; jedes Repo pusht in den eigenen Namespace.
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: Build & push ${{ matrix.arch }}
         uses: docker/build-push-action@v6
@@ -68,5 +69,5 @@ jobs:
             BUILD_VERSION=${{ steps.ver.outputs.version }}
             BUILD_ARCH=${{ matrix.arch }}
           tags: |
-            ghcr.io/systemwerk-gmbh-co-kg/${{ matrix.arch }}-addon-expensecharge:${{ steps.ver.outputs.version }}
-            ghcr.io/systemwerk-gmbh-co-kg/${{ matrix.arch }}-addon-expensecharge:latest
+            ghcr.io/${{ steps.ver.outputs.owner }}/${{ matrix.arch }}-addon-expensecharge:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ steps.ver.outputs.owner }}/${{ matrix.arch }}-addon-expensecharge:latest

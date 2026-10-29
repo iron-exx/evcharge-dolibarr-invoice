@@ -17,12 +17,13 @@ import subprocess
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OWNER = 'systemwerk-GmbH-Co-KG'
 REPO = 'ExpenseCharge'
-# GHCR-Namensräume sind immer klein geschrieben.
-GHCR_OWNER = OWNER.lower()
+# Das Image kommt aus dem öffentlichen Spiegel: die GHCR-Pakete unter
+# systemwerk-gmbh-co-kg sind privat, HA bekam beim Ziehen 401.
+IMAGE_OWNER = 'iron-exx'
 
 # Namen, die es nicht gibt bzw. die nicht mehr gelten. Der Spiegel
 # iron-exx/evcharge-dolibarr-invoice existiert und darf genannt werden.
-DEAD = ('ExpenseChrage', 'iron-exx/ExpenseCharge', 'ghcr.io/iron-exx')
+DEAD = ('ExpenseChrage', 'iron-exx/ExpenseCharge')
 
 
 # Dateien, die die toten Namen absichtlich nennen und daher nicht geprüft werden:
@@ -69,38 +70,30 @@ def test_addon_repository_points_at_this_repo():
         "Hinzufügen in Home Assistant"
 
 
-def test_addon_image_namespace_matches_the_repo_owner():
+def test_addon_image_comes_from_the_public_mirror():
     text = open(os.path.join(ROOT, 'wallbox-dolibarr', 'config.yaml'), encoding='utf-8').read()
     m = re.search(r'^image:\s*"([^"]+)"', text, re.M)
     assert m, "config.yaml braucht ein image:-Feld"
-    assert m.group(1).startswith(f'ghcr.io/{GHCR_OWNER}/'), \
-        f"image: zeigt auf {m.group(1)} — erwartet ghcr.io/{GHCR_OWNER}/…"
+    assert m.group(1).startswith(f'ghcr.io/{IMAGE_OWNER}/'), \
+        f"image: zeigt auf {m.group(1)} — erwartet ghcr.io/{IMAGE_OWNER}/…"
     assert m.group(1) == m.group(1).lower(), "GHCR-Namensräume sind klein geschrieben"
 
 
-def test_image_workflow_runs_in_this_repo():
-    """Die Bedingung schützt Forks vor Push-Versuchen — sie muss aber auf das
-    eigene Repo passen, sonst baut die CI niemals ein Image."""
-    path = os.path.join(ROOT, '.github', 'workflows', 'builder.yaml')
-    text = open(path, encoding='utf-8').read()
-    conditions = re.findall(r"github\.repository\s*==\s*'([^']+)'", text)
-    assert conditions, "builder.yaml hat keine repository-Bedingung"
-    for cond in conditions:
-        assert cond == f'{OWNER}/{REPO}', \
-            f"Bedingung prüft auf {cond!r} — die CI läuft damit hier nie"
-
-
-def test_workflow_pushes_to_the_matching_registry():
-    """Nur die EIGENEN Images prüfen. ghcr.io/home-assistant/…-base ist das
-    Basis-Image, das gezogen wird — kein Push-Ziel."""
+def test_workflow_pushes_to_its_own_namespace():
+    """Beide Repos (systemwerk und iron-exx) bauen; jedes pusht in den
+    GHCR-Namensraum seines Owners. Eine repository-Bedingung oder ein fest
+    eingetragener Namensraum würde den Spiegel wieder ohne Image lassen.
+    ghcr.io/home-assistant/…-base ist das Basis-Image, kein Push-Ziel."""
     text = open(os.path.join(ROOT, '.github', 'workflows', 'builder.yaml'),
                 encoding='utf-8').read()
-    # [^\n]*? statt [^\s]*: zwischen Namensraum und Image-Namen steht
-    # ${{ matrix.arch }} — mit Leerzeichen.
-    own = re.findall(r'ghcr\.io/([a-z0-9._-]+)/[^\n]*?addon-expensecharge', text)
+    assert not re.search(r"github\.repository\s*==", text), \
+        "builder.yaml darf nicht auf ein Repo beschränkt sein"
+    own = re.findall(r'ghcr\.io/([^/\n]+)/[^\n]*?addon-expensecharge', text)
     assert own, "builder.yaml pusht kein Addon-Image"
     for ref in own:
-        assert ref == GHCR_OWNER, f"Workflow pusht nach ghcr.io/{ref}/ statt {GHCR_OWNER}"
+        assert ref == '${{ steps.ver.outputs.owner }}', \
+            f"Workflow pusht fest nach ghcr.io/{ref}/"
+    assert '${GITHUB_REPOSITORY_OWNER,,}' in text, "Owner muss klein geschrieben werden"
 
 
 def test_runtime_data_directory_is_never_committed():
