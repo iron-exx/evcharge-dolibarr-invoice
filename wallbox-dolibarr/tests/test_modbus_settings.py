@@ -126,3 +126,14 @@ def test_text_may_contain_a_colon():
         "registers": {"energy": {"address": 100},
                       "state": {"address": 200, "state_map": ["7:Fehler: Schütz"]}}}})
     assert s.state.state_map == {7: "Fehler: Schütz"}
+
+
+def test_empty_optional_registers_count_as_not_configured():
+    """config.yaml liefert state/rfid/power als leere Objekte (der Supervisor
+    verlangt sie) — ohne Adresse heißt das: nicht verwendet."""
+    cfg = {"session_source": "modbus",
+           "modbus": {"host": "192.168.1.50",
+                      "registers": {"energy": {"address": 100},
+                                    "state": {}, "rfid": {}, "power": {}}}}
+    s = resolve_modbus_settings(cfg)
+    assert s.state is None and s.rfid is None and s.power is None

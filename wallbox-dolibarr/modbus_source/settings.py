@@ -174,6 +174,9 @@ def resolve_modbus_settings(config: dict) -> ModbusSettings:
             f"modbus.function_code muss 3 (Holding) oder 4 (Input) sein, war {function_code}")
 
     registers = raw.get('registers') or {}
+    if isinstance(registers, dict):
+        # Leere Objekte (Vorgabe aus config.yaml) = Register nicht verwendet.
+        registers = {k: v for k, v in registers.items() if v != {}}
     if not isinstance(registers, dict) or 'energy' not in registers:
         raise ModbusConfigError(
             "modbus.registers.energy fehlt — ohne Zählerstand kann nicht abgerechnet werden")

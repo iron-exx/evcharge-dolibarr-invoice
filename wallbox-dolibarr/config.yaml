@@ -1,6 +1,6 @@
 name: "ExpenseCharge"
 description: "ExpenseCharge — Ladevorgänge. Spesen. Abgerechnet."
-version: "2.3.0"
+version: "2.3.1"
 slug: "wallbox-dolibarr"
 init: false
 
@@ -92,6 +92,10 @@ options:
         type: "uint32"
         word_order: "big"
         scale: 0.001
+      # Leer = nicht verwendet. Der Supervisor verlangt die Objekte trotzdem.
+      state: {}
+      rfid: {}
+      power: {}
 
   # ── Wallbox-Profil ─────────────────────────────────────────────────────
   # "alfen_eve"  → bewährtes Alfen-Verhalten, Auth-/Zustand-Logik fest verdrahtet
