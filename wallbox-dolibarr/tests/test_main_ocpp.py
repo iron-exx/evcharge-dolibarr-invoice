@@ -157,3 +157,10 @@ async def test_transmission_survives_an_exception(ocpp_env):
     finally:
         task.cancel()
         main.api_client = None
+
+
+def test_configured_wallbox_shows_as_disconnected_before_first_contact(ocpp_env):
+    """Sonst zeigt die Oberfläche gar nichts — man sieht nicht, dass die Wallbox fehlt."""
+    main.build_ocpp_server(resolve_ocpp_settings(main.current_config))
+    st = main.api_state["charge_points"]["CP1"]
+    assert st["connected"] is False and st["wallbox_id"] == "garage"

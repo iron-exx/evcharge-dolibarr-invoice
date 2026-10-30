@@ -720,7 +720,9 @@ def _build_form_page(session_manager, config, message_html='', base_href='', api
     var cDot=document.getElementById('conn-dot');
     var cLbl=document.getElementById('conn-lbl');
     if(cDot && cLbl){
-      if(hasSensor){
+      if(cps.length && !cps.some(function(c){return c.connected;})){
+        cDot.className='dot'; cLbl.textContent='Getrennt';
+      } else if(hasSensor){
         cDot.className='dot dot-ok'; cLbl.textContent='Verbunden';
       } else {
         cDot.className='dot'; cLbl.textContent='Kein Sensor';

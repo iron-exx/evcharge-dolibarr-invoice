@@ -930,7 +930,11 @@ def note_tag_seen(tag: str) -> bool:
 
 def build_ocpp_server(settings) -> OcppServer:
     """Verdrahtet den OCPP-Server mit SessionManager, Whitelist und Live-Zustand."""
-    api_state['charge_points'] = {}
+    # Eingetragene Wallboxen sofort als "getrennt" zeigen, nicht erst nach dem ersten Kontakt.
+    api_state['charge_points'] = {
+        cp.id: {'connectors': {}, 'last_rejected_id_tag': None,
+                'connected': False, 'wallbox_id': cp.wallbox_id}
+        for cp in settings.charge_points}
     deps = CentralSystemDeps(
         session_manager=session_manager,
         whitelist=current_config.get('rfid_whitelist', []),
