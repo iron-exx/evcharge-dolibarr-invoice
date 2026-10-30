@@ -107,7 +107,9 @@ Menüpunkte heißen je nach Version leicht anders; gesucht sind:
    - Backoffice-Verbindung über das Netzwerk (Ethernet bzw. WLAN) aktivieren,
      Protokoll **OCPP 1.6J**
    - **Backoffice-URL** `ws://<Server-IP>:9000/` — Alfen hängt die Seriennummer an
-   - **Charge-Box-Identity** = Seriennummer (Vorgabe, so lassen)
+   - **Charge-Box-Identity** = Seriennummer (Vorgabe, so lassen). Sie steht im ACE
+     Service Installer links unter dem Gerätenamen: `ng910-60127-ace0389491` →
+     Seriennummer `ACE0389491`. **Nicht** die IP-Adresse der Wallbox.
    - **Security Profile 1**, Benutzer = Charge-Box-Identity, Passwort aus Schritt 2
 2. **Authorization**: Autorisierung durch das **Backoffice**, RFID-Leser aktiv.
    Eine lokale Whitelist bzw. „Free charging“ würde Karten ohne Rückfrage laden lassen.

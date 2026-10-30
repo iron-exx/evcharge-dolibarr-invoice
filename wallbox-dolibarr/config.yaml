@@ -1,6 +1,6 @@
 name: "ExpenseCharge"
 description: "ExpenseCharge — Ladevorgänge. Spesen. Abgerechnet."
-version: "2.3.1"
+version: "2.3.2"
 slug: "wallbox-dolibarr"
 init: false
 

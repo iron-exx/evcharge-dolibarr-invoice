@@ -43,6 +43,22 @@ configuration:
       Verbindungsversuch im Log), optional password (Basic Auth, mind. 16
       Zeichen; leer = ohne Passwort, nur im vertrauenswürdigen LAN) und
       optional wallbox_id (Name in Dolibarr, Standard = id).
+    fields:
+      id:
+        name: "Charge-Point-ID (nicht die IP!)"
+        description: >-
+          Kennung, mit der sich die Wallbox anmeldet. Alfen: die Seriennummer,
+          z.B. ACE0389491 (im ACE Service Installer unter dem Gerätenamen
+          „ng910-…-ace0389491“). Unsicher? Platzhalter eintragen — die echte ID
+          steht nach dem ersten Verbindungsversuch im Log.
+      password:
+        name: "Passwort"
+        description: >-
+          16–40 Zeichen. Dasselbe Passwort in der Wallbox eintragen (Security
+          Profile 1, Benutzer = Charge-Point-ID).
+      wallbox_id:
+        name: "Name in Dolibarr"
+        description: "Kennung der Wallbox in der Spesenzeile. Leer = Charge-Point-ID."
 
   ocpp_heartbeat_interval:
     name: "OCPP-Heartbeat (Sekunden)"
